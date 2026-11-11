@@ -29,7 +29,7 @@ alloy = { version = "2.5.0", features = ["full"] }
 serde = { version = "1.0.229", features = ["derive"] }
 url = { version = "2.5.8", features = ["serde"] }
 toml = "1.2.1"
-whirlwind = { git = "https://github.com/sb-child/whirlwind", rev = "96b5370e2dc7b4cfca3f09008bcdba2972966339" }
+whirlwind = { git = "https://github.com/sb-child/whirlwind", rev = "dec605442523e0fadc30fbe6490aea9681ab8f1c" }
 
 [build-dependencies]
 tonic-prost-build = "0.14.9"

@@ -5435,7 +5435,7 @@ dependencies = [
 [[package]]
 name = "whirlwind"
 version = "0.1.1"
-source = "git+https://github.com/sb-child/whirlwind?rev=96b5370e2dc7b4cfca3f09008bcdba2972966339#96b5370e2dc7b4cfca3f09008bcdba2972966339"
+source = "git+https://github.com/sb-child/whirlwind?rev=dec605442523e0fadc30fbe6490aea9681ab8f1c#dec605442523e0fadc30fbe6490aea9681ab8f1c"
 dependencies = [
  "crossbeam-utils",
  "futures",

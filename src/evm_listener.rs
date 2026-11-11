@@ -67,12 +67,8 @@ pub async fn listen(cfg: EvmConfig) -> Result<(), EvmListenError> {
             .map(|x| B256::from_slice(x.addr.into_word().as_slice())),
     );
     ensure!(listen_addrs.len() > 0, EmptyAddressSnafu);
-    let _addr_names: HashMap<Address, Box<str>> =
-        HashMap::from_iter(cfg.address.iter().map(|x| (x.addr, x.name.clone())));
-    let addr_names: AddrMap = ShardMap::new();
-    for (k, v) in _addr_names {
-        addr_names.insert(k, v).await;
-    }
+    let addr_names: AddrMap =
+        ShardMap::from_iter(cfg.address.iter().map(|x| (x.addr, x.name.clone())));
     let transfer_or_approval =
         Topic::from_iter([*TRANSFER_EVENT_SIGNATURE, *APPROVAL_EVENT_SIGNATURE]);
 
