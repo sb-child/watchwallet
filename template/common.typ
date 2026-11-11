@@ -166,7 +166,7 @@
   } else {
     ""
   }
-  let value = float_to_str(val)
+  let value = if val == "inf" { "无限制" } else { float_to_str(val) }
   let value_str = prefix + value + " " + sym
   align(center, fit-text(value_str, max-size: 12pt))
   if name != "" {
@@ -218,4 +218,12 @@
       ]
     }
   ]
+}
+
+#let temp(x: "{{}}", def: "") = {
+  if x.contains("{{") and x.contains("}}") {
+    def
+  } else {
+    x
+  }
 }
