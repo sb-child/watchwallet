@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock},
+};
 
 use crate::config::EvmConfig;
 use alloy::{
@@ -7,19 +10,22 @@ use alloy::{
     rpc::types::{Filter, Topic},
     transports::{RpcError, TransportError, TransportErrorKind},
 };
-use lazy_static::lazy_static;
 use snafu::{ResultExt, Snafu, ensure, futures::TryFutureExt};
 use url::Url;
 
-lazy_static! {
-    /// ERC-20 / ERC-721 Transfer
-    static ref TRANSFER_EVENT_SIGNATURE: B256 = {
-        let mut h = Keccak256::new();
-        //        T0 hash  T1 from T2 to   Data amount
-        h.update("Transfer(address,address,uint256)");
-        h.finalize()
-    };
-}
+/// ERC-20 / ERC-721 Transfer
+static TRANSFER_EVENT_SIGNATURE: LazyLock<B256> = LazyLock::new(|| {
+    let mut h = Keccak256::new();
+    // ERC-20
+    // T0 hash  T1 from T2 to   Data amount
+    // Transfer(address,address,uint256)
+
+    // ERC-721
+    // T0 hash  T1 from T2 to   T3 tokenId  Data 0x  amount=1
+    // Transfer(address,address,uint256)
+    h.update("Transfer(address,address,uint256)");
+    h.finalize()
+});
 
 #[derive(Debug, Snafu)]
 pub enum EvmListenError {

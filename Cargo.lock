@@ -5357,7 +5357,6 @@ dependencies = [
  "crossfire",
  "futures-util",
  "humantime",
- "lazy_static",
  "mytm",
  "prost",
  "rayon",

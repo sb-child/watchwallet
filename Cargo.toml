@@ -29,7 +29,6 @@ alloy = { version = "2.5.0", features = ["full"] }
 serde = { version = "1.0.229", features = ["derive"] }
 url = { version = "2.5.8", features = ["serde"] }
 toml = "1.2.1"
-lazy_static = "1.5.1"
 
 [build-dependencies]
 tonic-prost-build = "0.14.9"
