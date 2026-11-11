@@ -20,7 +20,7 @@ crossfire = { version = "3.1.22", features = ["tokio"] }
 mytm = { git = "https://github.com/sb-child/mytm", rev = "fd1b520d30f40c17905e375c8d1f1e17d02eb7c8" }
 futures-util = "0.3.34"
 tonic = { version = "0.14.9" }
-prost = { version = "0.14.4" }
+prost = { version = "0.14.5" }
 tokio-stream = { version = "0.1.19", features = ["net"] }
 tonic-prost = { version = "0.14.9" }
 uuid = { version = "1", features = ["v4"] }

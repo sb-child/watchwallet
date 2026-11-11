@@ -1,21 +1,27 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, LazyLock},
-};
-
 use crate::config::EvmConfig;
 use alloy::{
     primitives::{Address, B256, Keccak256, U256},
     providers::{Provider as _, ProviderBuilder, WsConnect},
     rpc::types::{Filter, Log, Topic},
+    sol,
     transports::{RpcError, TransportError, TransportErrorKind},
 };
 use mytm::TaskManager;
 use snafu::{ResultExt, Snafu, ensure, futures::TryFutureExt};
+use std::sync::{Arc, LazyLock};
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 use whirlwind::ShardMap;
+
+sol! {
+    #[sol(rpc)]
+    interface IERC20Metadata {
+        function name() external view returns (string);
+        function symbol() external view returns (string);
+        function decimals() external view returns (uint8);
+    }
+}
 
 /// ERC-20 / ERC-721 Transfer
 static TRANSFER_EVENT_SIGNATURE: LazyLock<B256> = LazyLock::new(|| {
@@ -59,6 +65,7 @@ pub enum EvmListenError {
 }
 
 type AddrMap = ShardMap<Address, Box<str>>;
+type AddrInfoMap = ShardMap<Address, AddressInfo>;
 type EvmProvider = alloy::providers::fillers::FillProvider<
     alloy::providers::fillers::JoinFill<
         alloy::providers::Identity,
@@ -76,8 +83,22 @@ type EvmProvider = alloy::providers::fillers::FillProvider<
     alloy::providers::RootProvider,
 >;
 
-async fn fetcher(p: EvmProvider, ct: CancellationToken) {
-    // p.get_code_at(address);
+#[derive(Debug, Clone)]
+enum AddressInfo {
+    EOA,
+    Erc20Contract(Erc20Contract),
+    OtherContract,
+}
+
+#[derive(Debug, Clone)]
+struct Erc20Contract {
+    symbol: Option<Box<str>>,
+    name: Option<Box<str>>,
+    decimals: u8,
+}
+
+async fn fetcher(p: EvmProvider, addr_info: AddrInfoMap, ct: CancellationToken) {
+    // let code = p.get_code_at(target).await?;
 }
 
 pub async fn listen(
@@ -97,6 +118,7 @@ pub async fn listen(
         ShardMap::from_iter(cfg.address.iter().map(|x| (x.addr, x.name.clone())));
     let transfer_or_approval =
         Topic::from_iter([*TRANSFER_EVENT_SIGNATURE, *APPROVAL_EVENT_SIGNATURE]);
+    let addr_info: AddrInfoMap = ShardMap::new();
 
     let filter_incoming = Filter::new()
         .event_signature(transfer_or_approval.clone())
@@ -113,9 +135,10 @@ pub async fn listen(
         .await?;
 
     let p = provider.clone();
+    let ai = addr_info.clone();
     let fetcher_task: mytm::TaskHandle<(), (), ()> = tm.spawn_typed(|_tm, pu, ct| async move {
         pu.update(());
-        fetcher(p, ct).await;
+        fetcher(p, ai, ct).await;
         Ok(())
     });
     fetcher_task.cancel_at(ct);
