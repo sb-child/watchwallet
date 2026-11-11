@@ -110,8 +110,9 @@
 
 #v(-5pt)
 
+- 时间: #text("2026/06/06 66:66:66", weight: "bold")
 - 区块链: #text("Arbitrum One", weight: "bold")
-- 手续费: #text("0.0000000011 ETH", weight: "bold")
+- 网络费: #text("0.0000000011 ETH", weight: "bold")
 - 交易:
 
 #v(-16pt) // 把"交易:"与"0x"叠在一起
