@@ -10,8 +10,10 @@ use alloy::{
     rpc::types::{Filter, Log, Topic},
     transports::{RpcError, TransportError, TransportErrorKind},
 };
+use mytm::TaskManager;
 use snafu::{ResultExt, Snafu, ensure, futures::TryFutureExt};
 use tokio_stream::StreamExt;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 use whirlwind::ShardMap;
 
@@ -57,8 +59,32 @@ pub enum EvmListenError {
 }
 
 type AddrMap = ShardMap<Address, Box<str>>;
+type EvmProvider = alloy::providers::fillers::FillProvider<
+    alloy::providers::fillers::JoinFill<
+        alloy::providers::Identity,
+        alloy::providers::fillers::JoinFill<
+            alloy::providers::fillers::GasFiller,
+            alloy::providers::fillers::JoinFill<
+                alloy::providers::fillers::BlobGasFiller,
+                alloy::providers::fillers::JoinFill<
+                    alloy::providers::fillers::NonceFiller,
+                    alloy::providers::fillers::ChainIdFiller,
+                >,
+            >,
+        >,
+    >,
+    alloy::providers::RootProvider,
+>;
 
-pub async fn listen(cfg: EvmConfig) -> Result<(), EvmListenError> {
+async fn fetcher(p: EvmProvider, ct: CancellationToken) {
+    // p.get_code_at(address);
+}
+
+pub async fn listen(
+    cfg: EvmConfig,
+    tm: TaskManager,
+    ct: CancellationToken,
+) -> Result<(), EvmListenError> {
     let ws_url = Arc::new(cfg.ws_url);
 
     let listen_addrs = Topic::from_iter(
@@ -85,6 +111,14 @@ pub async fn listen(cfg: EvmConfig) -> Result<(), EvmListenError> {
         .connect_ws(ws_conn)
         .context(TransportSnafu { url: ws_url })
         .await?;
+
+    let p = provider.clone();
+    let fetcher_task: mytm::TaskHandle<(), (), ()> = tm.spawn_typed(|_tm, pu, ct| async move {
+        pu.update(());
+        fetcher(p, ct).await;
+        Ok(())
+    });
+    fetcher_task.cancel_at(ct);
 
     let sub_blocks = provider.subscribe_blocks().await.context(SubBlocksSnafu)?;
     let sub_incoming = provider
