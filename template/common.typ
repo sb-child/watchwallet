@@ -2,7 +2,7 @@
   let prefix = ""
   let body = t
   if t.starts-with("0x") {
-    prefix = "      0x" // 和上面的"交易:"拼到一起
+    prefix = "       0x" // 和上面的"xxxx:"拼到一起
     body = t.slice(2)
   }
   let chunks = ()
@@ -17,61 +17,73 @@
   align(center)[
     #block()[
       #set align(left)
-      #text(font: "Unifont", lines.join([
-        #v(-8pt)
+      #text(font: "JetBrains Mono", size: 7pt, lines.join([
+        #v(-6pt)
       ]))
     ]
-
   ]
 }
 
-#let account_with_name(name: "", addr: "") = {
+#let account_with_name(name: "", addr: "", contract: false) = {
+  let im = if contract {
+    "receipt-text.svg"
+  } else {
+    "user-round-star.svg"
+  }
   rect(
     radius: 5pt,
-    stroke: 0.3pt + black,
+    stroke: 0.5pt + black,
     inset: 1pt,
     grid(
       columns: (14pt, 1fr),
       gutter: 2pt,
       align: left,
-      [#image("user-round-star.svg", width: 14pt)],
+      [#image(im, width: 14pt)],
       [
         #align(horizon + left)[
           #text(name, size: 10pt)
-          #v(-12pt)
-          #text(addr, font: "Unifont", size: 5.5pt)
+          #v(-10pt)
+          #text(addr, font: "JetBrains Mono", size: 4.6pt, weight: 800)
         ]
       ],
     ),
   )
 }
 
-#let account_only_addr(addr: "") = {
+#let account_only_addr(addr: "", contract: false) = {
+  let im = if contract {
+    "receipt-text.svg"
+  } else {
+    "user-round.svg"
+  }
   rect(
     radius: 5pt,
-    stroke: 0.3pt + black,
+    stroke: 0.5pt + black,
     inset: 1pt,
     grid(
       columns: (14pt, 1fr),
       gutter: 2pt,
       align: left,
-      [#image("user-round.svg", width: 14pt)],
+      [#image(im, width: 14pt)],
       [
         #align(horizon + left)[
-          #text(addr, font: "Unifont", size: 5.5pt)
+          #text(addr, font: "JetBrains Mono", size: 4.6pt, weight: 800)
         ]
       ],
     ),
   )
 }
 
-#let account(name: "", addr: "") = {
-  if name == "" {
-    account_only_addr(addr: addr)
-  } else {
-    account_with_name(name: name, addr: addr)
-  }
+#let account(name: "", addr: "", contract: false) = {
+  pad(left: 0.6pt, top: 0pt)[
+    #if name == "" {
+      account_only_addr(addr: addr, contract: contract)
+    } else {
+      account_with_name(name: name, addr: addr, contract: contract)
+    }
+  ]
 }
+
 
 #let flow-down(label: "") = {
   grid(
@@ -106,18 +118,104 @@
   max-size: 12pt,
   min-size: 6pt,
   step: 0.2pt,
+  weight: "regular",
 ) = {
   layout(container-size => context {
     let max-width = container-size.width
     let current-size = max-size
-
-    let text-width = measure(text(size: current-size, top-edge: "bounds")[#body]).width
-
+    let text-width = measure(text(size: current-size, top-edge: "bounds", weight: weight)[#body]).width
     while text-width > max-width and current-size > min-size {
       current-size -= step
-      text-width = measure(text(size: current-size, top-edge: "bounds")[#body]).width
+      text-width = measure(text(size: current-size, top-edge: "bounds", weight: weight)[#body]).width
     }
-
-    text(size: current-size)[#body]
+    text(size: current-size, weight: weight)[#body]
   })
+}
+
+#let title(t) = {
+  let _t(im, t: "") = {
+    [= #box(image(im, width: 14pt), baseline: 3pt) #text(t)]
+  }
+  if t == "approve" {
+    _t("feather.svg", t: "授权代币")
+  } else if t == "erc20-recv" {
+    _t("hand-coins.svg", t: "收到代币")
+  } else if t == "erc20-send" {
+    _t("send.svg", t: "转出代币")
+  } else if t == "recv" {
+    _t("hand-coins.svg", t: "收到原生币")
+  } else if t == "send" {
+    _t("send.svg", t: "转出原生币")
+  }
+}
+
+#let float_to_str(f) = {
+  let s = if type(f) == str {
+    f
+  } else {
+    str(calc.round(float(f), digits: 18))
+  }
+  return s.replace(regex("\.0+$|(\.\d+?)0+$"), "$1")
+}
+
+#let display-value(val: 0.0, sym: "", name: "", k: "") = {
+  let prefix = if k == "inc" {
+    "+"
+  } else if k == "dec" {
+    "-"
+  } else {
+    ""
+  }
+  let value = float_to_str(val)
+  let value_str = prefix + value + " " + sym
+  align(center, fit-text(value_str, max-size: 12pt))
+  if name != "" {
+    v(-4pt)
+    align(center, text(name, size: 6pt, weight: "bold"))
+  }
+  v(-4pt)
+}
+
+#let details(
+  _datetime: "",
+  _chain_name: "",
+  _tx_fee: 0.0,
+  _sym: "",
+  _token_contract: "",
+  _txid: "",
+) = {
+  let value_str = float_to_str(_tx_fee) + " " + _sym
+  [
+    - 时间: #text(_datetime, weight: "bold")
+    - 区块链: #text(_chain_name, weight: "bold")
+    #v(-4.5pt)
+    #grid(
+      columns: (auto, auto),
+      align: left,
+      gutter: 2pt,
+      [- 网络费:],
+      [
+        #align(horizon)[
+          #fit-text(value_str, weight: "bold", max-size: 8pt)
+        ]
+      ],
+    )
+    #v(-4.5pt)
+    #if _token_contract != "" {
+      [
+        - 代币:
+        #v(-15pt) // 把"代币:"与"0x"叠在一起
+        #tx(t: _token_contract)
+        #v(-5pt)
+      ]
+    }
+    #if _txid != "" {
+      [
+        - 交易:
+        #v(-15pt) // 把"交易:"与"0x"叠在一起
+        #tx(t: _txid)
+        #v(-5pt)
+      ]
+    }
+  ]
 }
