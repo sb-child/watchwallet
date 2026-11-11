@@ -1,0 +1,21 @@
+[[evm]]
+chain_name = "Ethereum Mainnet"
+ws_url = "wss://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+[[evm.address]]
+name = "first wallet"
+addr = "0x"
+[[evm]]
+chain_name = "Arbitrum One"
+ws_url = "wss://arb-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+[[evm.address]]
+name = "first wallet"
+addr = "0x"
+[[evm.address]]
+name = "second wallet"
+addr = "0x"
+[[evm]]
+chain_name = "Polygon PoS"
+ws_url = "wss://polygon-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+[[evm.address]]
+name = "first wallet"
+addr = "0x"
