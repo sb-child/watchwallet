@@ -4,7 +4,7 @@ use mytm::TaskManager;
 use std::{backtrace::BacktraceStatus, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
-use watchwallet::cli::Cli;
+use watchwallet::{cli::Cli, config::Config};
 
 fn exit_code(result: anyhow::Result<()>) -> std::process::ExitCode {
     match result {
@@ -46,7 +46,7 @@ fn main() -> std::process::ExitCode {
         let root = CancellationToken::new();
         let sub = root.child_token();
 
-        let app_fut = app(tm, sub);
+        let app_fut = app(tm, sub, config);
         tokio::pin!(app_fut);
 
         let app_result = tokio::select! {
@@ -91,9 +91,7 @@ async fn shutdown_signal() {
 
 // ---
 
-async fn app(tm: TaskManager, root: CancellationToken) -> anyhow::Result<()> {
-    let ws_conn = WsConnect::new("");
-    let provider = ProviderBuilder::new().connect_ws(ws_conn).await?;
-    provider.subscribe_blocks();
+async fn app(tm: TaskManager, root: CancellationToken, config: Config) -> anyhow::Result<()> {
+    // todo
     Ok(())
 }
