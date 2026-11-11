@@ -12,6 +12,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocator-api2"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+
+[[package]]
 name = "alloy"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2396,6 +2402,8 @@ version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash 0.2.0",
  "serde",
  "serde_core",
@@ -5374,6 +5382,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "whirlwind",
 ]
 
 [[package]]
@@ -5421,6 +5430,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171"
 dependencies = [
  "rustls-pki-types",
+]
+
+[[package]]
+name = "whirlwind"
+version = "0.1.1"
+source = "git+https://github.com/sb-child/whirlwind?rev=96b5370e2dc7b4cfca3f09008bcdba2972966339#96b5370e2dc7b4cfca3f09008bcdba2972966339"
+dependencies = [
+ "crossbeam-utils",
+ "futures",
+ "hashbrown 0.17.1",
+ "tokio",
 ]
 
 [[package]]

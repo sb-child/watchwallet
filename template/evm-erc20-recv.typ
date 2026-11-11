@@ -12,21 +12,21 @@
 #let _tx_id = common.temp(x: "{{tx_id}}", def: "0xce656824ee4da940ca08901088940d52b4fe1b5a7b4b21007daaec4f1c315529")
 #let _token_contract = common.temp(x: "{{token_contract}}", def: "0x55d398326f99059ff775485246999027b3197955")
 // 失去币的一方
-#let _sender_addr = common.temp(x: "{{sender_addr}}", def: "0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3")
-#let _sender_name = common.temp(x: "{{sender_name}}", def: "sbchild钱包1")
+#let _sender_addr = common.temp(x: "{{sender_addr}}", def: "0x233b7f746aBAc0797E8dBC344b638F1C4225F264")
+#let _sender_name = common.temp(x: "{{sender_name}}", def: "")
 #let _sender_is_contract = common.temp(x: "{{sender_is_contract}}", def: false)
 // 获得币的一方
-#let _recp_addr = common.temp(x: "{{recp_addr}}", def: "0x233b7f746aBAc0797E8dBC344b638F1C4225F264")
-#let _recp_name = common.temp(x: "{{recp_name}}", def: "")
+#let _recp_addr = common.temp(x: "{{recp_addr}}", def: "0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3")
+#let _recp_name = common.temp(x: "{{recp_name}}", def: "sbchild钱包1")
 #let _recp_is_contract = common.temp(x: "{{recp_is_contract}}", def: false)
 // ---
 #common.title("erc20-recv")
 #common.display-value(val: _transfer_value, sym: _coin_symbol, k: "inc", name: _coin_name)
 #grid(
   gutter: 2pt,
-  [#common.account(addr: _sender_addr, contract: _sender_is_contract, name: _sender_name)],
-  [#common.flow-up(label: "来自")],
   [#common.account(addr: _recp_addr, contract: _recp_is_contract, name: _recp_name)],
+  [#common.flow-up(label: "来自")],
+  [#common.account(addr: _sender_addr, contract: _sender_is_contract, name: _sender_name)],
 )
 #v(-5pt)
 #common.details(
