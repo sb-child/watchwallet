@@ -9,15 +9,16 @@ use alloy::primitives::{Address, B256};
 use moka::future::Cache;
 use std::{collections::HashMap, sync::Arc};
 
-/// 地址信息缓存上限。地址是低频数据，基本只会增长到配置里的地址数加涉及的合约数。
+/// 地址信息缓存上限
+// 地址是低频数据，基本只会增长到配置里的地址数加涉及的合约数。
 const ADDR_CACHE_CAPACITY: u64 = 8_192;
-/// 交易信息缓存上限。交易只会被同一笔交易的几条日志访问，没有必要长期保留。
+/// 交易信息缓存上限
+// 交易只会被同一笔交易的几条日志访问，没有必要长期保留。
 const TX_CACHE_CAPACITY: u64 = 65_536;
 
+// 约定：用 optionally_get_with 而不是 try_get_with，查询失败统一返回 None、不写缓存，等下次事件再试；
+// 同一 key 的并发查询会被合并成一次 RPC。
 /// 监听过程中共享的查询上下文，缓存按链各一份。
-///
-/// 用 [`Cache::optionally_get_with`] 而不是 [`Cache::try_get_with`]：
-/// 查询失败统一返回 [`None`]，不写缓存，等下次事件再试；同一 key 的并发查询会被合并成一次 RPC。
 #[derive(Clone)]
 pub struct EvmCtx {
     provider: EvmProvider,
@@ -40,10 +41,9 @@ impl EvmCtx {
         }
     }
 
+    // 约定：地址信息只用于展示（是否合约），查询失败时退化为 EOA，避免丢失整条通知；
+    // 失败结果不写缓存，下次事件会重新查询。
     /// 查询地址信息，并带上配置里写的名字。
-    ///
-    /// 地址信息只用于展示（是否合约），查询失败时退化为 EOA，避免丢失整条通知；
-    /// 失败结果不写缓存，下次事件会重新查询。
     pub async fn account(&self, addr: Address) -> AccountInfo {
         let is_contract = matches!(self.lookup(addr).await, Some(info) if info.is_contract());
         AccountInfo {
@@ -66,7 +66,8 @@ impl EvmCtx {
         })
     }
 
-    /// 查询交易信息。查询失败时事件照发，模板使用默认值。
+    // 查询失败时事件照发，模板使用默认值。
+    /// 查询交易信息。
     pub async fn tx(&self, txid: B256) -> Option<TxInfo> {
         self.tx_info
             .optionally_get_with(txid, fetch_tx_info(&self.provider, txid))

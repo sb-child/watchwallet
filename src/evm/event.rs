@@ -39,14 +39,15 @@ pub struct Erc20TokenInfo {
     pub decimals: u8,
 }
 
-/// 交易手续费与时间。
+/// 交易手续费、出块时间与执行状态。
 #[derive(Debug, Clone)]
 pub struct TxInfo {
     /// 手续费，单位是链的原生币最小单位
     pub fee: U256,
     /// 出块时间，Unix 秒
     pub timestamp: u64,
-    /// 交易是否执行成功。失败的交易不会真正转账，但链上仍然记录了 value。
+    /// 交易是否执行成功
+    // 失败的交易不会真正转账，但链上仍然记录了 value。
     pub success: bool,
 }
 
@@ -81,9 +82,8 @@ pub trait TransferFlow {
     }
 }
 
-/// ERC-20 Transfer 事件。
-///
-/// 同时表示收款和转账：`watched` 始终是被监听的一方，`direction` 说明币的流向。
+// 约定：watched 始终是被监听的一方，direction 说明币的流向。
+/// ERC-20 Transfer 事件，同时表示收款和转账。
 #[derive(Debug, Clone)]
 pub struct TokenTransferEvent {
     /// 本次通知对应的被监听地址

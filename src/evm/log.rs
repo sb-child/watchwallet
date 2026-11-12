@@ -42,7 +42,8 @@ struct ParsedLog {
     tx_hash: B256,
 }
 
-/// 只接受“3 个主题 + 至少 32 字节数据”的日志，ERC-721 的 4 主题会被过滤掉。
+// 约定：只接受 3 个主题、数据至少 32 字节的日志；ERC-721 的 4 主题会被过滤掉。
+/// 解析 Transfer / Approval 日志。
 fn parse_log(log: &Log) -> Option<ParsedLog> {
     // 重组的日志要撤销，不能当成新的转账
     if log.removed {
@@ -75,9 +76,6 @@ pub async fn on_log(log: Log, direction: TransferDirection, ctx: &EvmCtx, ev: &E
 }
 
 /// 每条日志单独一个任务，互不阻塞。
-///
-/// 不在 `tokio::select!` 里取消 handler：moka 的初始化 future 被 abort 会让同 key 的等待者重试，
-/// 关机时可能多发一次 RPC。这里只在任务开头检查一次取消状态。
 pub fn spawn_log(
     log: Log,
     direction: TransferDirection,
@@ -85,6 +83,8 @@ pub fn spawn_log(
     ev: EventTx,
     ct: CancellationToken,
 ) {
+    // 约定：不在 tokio::select! 里取消 handler —— moka 的初始化 future 被 abort 会让同 key 的等待者重试，
+    // 关机时可能多发一次 RPC。这里只在任务开头检查一次取消状态。
     tokio::spawn(async move {
         if ct.is_cancelled() {
             return;

@@ -59,11 +59,11 @@ type EvmProvider = alloy::providers::fillers::FillProvider<
     alloy::providers::RootProvider,
 >;
 
-/// 每条链一个事件通道，事件本身不带链信息。
+// 约定：每条链一个事件通道，事件本身不带链信息。
 pub type EventRx = crossfire::MAsyncRx<mpmc::List<EvmEvent>>;
 pub type EventTx = crossfire::MAsyncTx<mpmc::List<EvmEvent>>;
 
-/// 日志订阅的过滤条件。incoming 命中 `to` / `spender`，outgoing 命中 `from` / `owner`。
+/// 日志订阅的过滤条件。
 struct Filters {
     incoming: Filter,
     outgoing: Filter,
@@ -195,8 +195,9 @@ async fn run_event_loop(
     }
 }
 
-/// 发送事件，接收端关闭时只记日志：监听不应该因为下游退出而中断。
+/// 发送事件到事件通道。
 pub(crate) async fn emit(ev: &EventTx, event: EvmEvent) {
+    // 约定：接收端关闭时只记日志，监听不应该因为下游退出而中断。
     if ev.send(event).await.is_err() {
         tracing::warn!("发送 EVM 事件失败：接收端已关闭");
     }

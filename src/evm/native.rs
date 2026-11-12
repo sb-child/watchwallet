@@ -20,10 +20,9 @@ struct Transfer {
     tx_hash: B256,
 }
 
+// 约定：只覆盖顶层交易（EOA -> 地址 / EOA -> 合约）。合约内部转账（contract -> 钱包）
+// 不在交易列表里，需要 trace 系列接口，暂时不支持。
 /// 每个区块一个任务，扫描其中的原生币转账。
-///
-/// 只覆盖顶层交易（EOA -> 地址 / EOA -> 合约）。合约内部转账（contract -> 钱包）不在交易列表里，
-/// 需要 trace 系列接口，暂时不支持。
 pub fn spawn_block(
     provider: EvmProvider,
     block_hash: B256,
@@ -42,7 +41,8 @@ pub fn spawn_block(
     });
 }
 
-/// 刚出的区块可能还没同步到负载均衡后的所有节点，查到空结果时短暂重试几次。
+// 负载均衡后的节点可能还没同步到刚出的区块，查到空结果时短暂重试几次。
+/// 查询完整区块。
 async fn fetch_block(p: &EvmProvider, block_hash: B256) -> Option<Block> {
     const ATTEMPTS: u32 = 3;
     for attempt in 0..ATTEMPTS {

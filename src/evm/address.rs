@@ -53,12 +53,11 @@ impl std::fmt::Display for AddressInfo {
     }
 }
 
+// 约定：没有收到节点响应的传输错误视为 provider 出错，打印日志后返回 None，调用方不写缓存，等下次事件再试。
+// 约定：空代码视为 EOA。
+// 约定：节点正常响应但 decimals 调用回滚，只说明该合约不是标准 ERC-20，归类为 OtherContract。
+// 约定：symbol / name 调用回滚只说明没有这两个元数据，结果里对应字段为 None。
 /// 通过 provider 拉取地址信息。
-///
-/// - 没有收到节点响应的传输错误视为 provider 出错，打印日志后返回 [`None`]，调用方不写缓存，等下次事件再试。
-/// - 空代码视为 [`AddressInfo::EOA`]。
-/// - 节点正常响应但 `decimals` 调用失败（例如合约没有对应方法而回滚）只说明该合约不是标准 ERC-20，归类为 [`AddressInfo::OtherContract`]。
-/// - `symbol` / `name` 调用失败只说明没有这两个元数据，结果里对应字段为 [`None`]。
 pub async fn fetch_address_info(p: &EvmProvider, addr: Address) -> Option<AddressInfo> {
     let code = match p.get_code_at(addr).await {
         Ok(code) => code,
@@ -102,11 +101,8 @@ pub async fn fetch_address_info(p: &EvmProvider, addr: Address) -> Option<Addres
     }))
 }
 
-/// 把合约调用的结果分成三类，避免每个元数据查询都写一遍 match。
-///
-/// - `Ok(Some(v))`: 调用成功
-/// - `Ok(None)`: 节点正常响应但调用回滚
-/// - `Err(e)`: 传输错误，调用方应放弃本次查询
+// 约定：Ok(Some(v)) 调用成功；Ok(None) 节点正常响应但调用回滚；Err(e) 传输错误，调用方应放弃本次查询。
+/// 执行一次合约调用，把结果分成成功、回滚和传输错误三类。
 async fn metadata<T, F>(fut: F) -> Result<Option<T>, TransportError>
 where
     F: IntoFuture<Output = Result<T, alloy::contract::Error>>,

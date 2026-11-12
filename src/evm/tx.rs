@@ -5,15 +5,14 @@ use alloy::{
     providers::Provider as _,
 };
 
+// 约定：receipt 还没被节点索引到时返回 None，不打印日志，也不写缓存。
+// 约定：provider 出错时打印日志后返回 None，不写缓存，等下次事件再试。
 /// 查询交易手续费和出块时间。
-///
-/// - receipt 还没被节点索引到：返回 [`None`]，不打印日志，也不写缓存。
-/// - provider 出错：打印日志后返回 [`None`]，不写缓存，等下次事件再试。
 pub async fn fetch_tx_info(p: &EvmProvider, txid: B256) -> Option<TxInfo> {
     fetch_tx_info_inner(p, txid, None).await
 }
 
-/// 已经知道出块时间时用这个，省掉一次区块查询。原生币转账在扫区块时能直接拿到时间戳。
+/// 查询交易手续费和出块时间，出块时间已知时省掉一次区块查询。
 pub async fn fetch_tx_info_at(p: &EvmProvider, txid: B256, timestamp: u64) -> Option<TxInfo> {
     fetch_tx_info_inner(p, txid, Some(timestamp)).await
 }

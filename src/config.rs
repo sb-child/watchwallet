@@ -17,9 +17,8 @@ pub struct EvmConfig {
     /// 区块链 Websocket RPC 地址
     pub ws_url: Url,
     /// 是否监听原生币转账
-    ///
-    /// 原生币转账没有日志，需要为每个新区块拉取完整区块；出块快的链（例如 Arbitrum）
-    /// RPC 消耗会明显变大，可以关掉。默认开启。
+    // 约定：默认开启。原生币转账没有日志，需要为每个新区块拉取完整区块，
+    // 出块快的链（例如 Arbitrum）RPC 消耗会明显变大，可以设为 false。
     #[serde(default = "default_true")]
     pub native_transfer: bool,
     /// 监听地址
