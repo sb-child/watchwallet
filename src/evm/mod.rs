@@ -1,5 +1,6 @@
 pub mod address;
 pub mod event;
+pub mod tx;
 
 use address::{AddressInfo, fetch_address_info};
 
