@@ -167,7 +167,7 @@
     ""
   }
   let value = if val == "inf" { "无限制" } else { float_to_str(val) }
-  let value_str = prefix + value + " " + sym
+  let value_str = prefix + value + if sym == "" { "" } else { " " + sym }
   align(center, fit-text(value_str, max-size: 12pt))
   if name != "" {
     v(-4pt)
