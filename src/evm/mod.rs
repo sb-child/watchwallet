@@ -2,6 +2,7 @@ pub mod address;
 pub mod cache;
 pub mod event;
 pub mod log;
+pub mod native;
 pub mod tx;
 
 pub use cache::EvmCtx;
@@ -12,7 +13,7 @@ use alloy::{
     primitives::B256,
     providers::{Provider as _, ProviderBuilder, WsConnect},
     pubsub::Subscription,
-    rpc::types::{Filter, Log, Topic},
+    rpc::types::{Filter, Header, Log, Topic},
     transports::{RpcError, TransportError, TransportErrorKind},
 };
 use crossfire::mpmc;
@@ -28,6 +29,9 @@ pub enum EvmListenError {
     Transport {
         source: TransportError,
         url: Arc<Url>,
+    },
+    SubBlocks {
+        source: RpcError<TransportErrorKind>,
     },
     SubLogs {
         source: RpcError<TransportErrorKind>,
@@ -68,6 +72,8 @@ struct Filters {
 struct Subscriptions {
     incoming: Subscription<Log>,
     outgoing: Subscription<Log>,
+    /// 新区块头。每来一个区块就去拉完整区块，扫描原生币转账。
+    blocks: Subscription<Header>,
 }
 
 pub async fn listen(
@@ -79,10 +85,10 @@ pub async fn listen(
     let filters = build_filters(&cfg)?;
     let subs = subscribe(&provider, &filters).await?;
     let ctx = EvmCtx::new(
-        provider,
+        provider.clone(),
         cfg.address.iter().map(|x| (x.addr, x.name.clone())),
     );
-    run_event_loop(subs, ctx, ev, ct).await
+    run_event_loop(subs, provider, ctx, ev, ct).await
 }
 
 async fn connect_provider(ws_url: &Url) -> Result<EvmProvider, EvmListenError> {
@@ -127,17 +133,24 @@ async fn subscribe(
         .subscribe_logs(&filters.outgoing)
         .await
         .context(SubLogsSnafu)?;
-    Ok(Subscriptions { incoming, outgoing })
+    let blocks = provider.subscribe_blocks().await.context(SubBlocksSnafu)?;
+    Ok(Subscriptions {
+        incoming,
+        outgoing,
+        blocks,
+    })
 }
 
 async fn run_event_loop(
     subs: Subscriptions,
+    provider: EvmProvider,
     ctx: EvmCtx,
     ev: EventTx,
     ct: CancellationToken,
 ) -> Result<(), EvmListenError> {
     let mut incoming_stream = subs.incoming.into_stream();
     let mut outgoing_stream = subs.outgoing.into_stream();
+    let mut block_stream = subs.blocks.into_stream();
     loop {
         tokio::select! {
             _ = ct.cancelled() => return Ok(()),
@@ -158,6 +171,27 @@ async fn run_event_loop(
                 // 花出代币 (from) / 授权代币给别人 (owner)
                 log::spawn_log(log, TransferDirection::Send, ctx.clone(), ev.clone(), ct.clone());
             }
+
+            header = block_stream.next() => {
+                let Some(header) = header else {
+                    return Err(EvmListenError::SubscriptionEnded);
+                };
+                // 原生币转账没有日志，只能拿到完整区块后逐笔扫描
+                native::spawn_block(
+                    provider.clone(),
+                    header.hash,
+                    ctx.clone(),
+                    ev.clone(),
+                    ct.clone(),
+                );
+            }
         }
+    }
+}
+
+/// 发送事件，接收端关闭时只记日志：监听不应该因为下游退出而中断。
+pub(crate) async fn emit(ev: &EventTx, event: EvmEvent) {
+    if ev.send(event).await.is_err() {
+        tracing::warn!("发送 EVM 事件失败：接收端已关闭");
     }
 }
