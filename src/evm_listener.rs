@@ -273,10 +273,14 @@ pub enum EvmEvent {
     TokenApproval(Box<TokenApprovalEvent>),
 }
 
+type EventRx = crossfire::MAsyncRx<mpmc::List<EvmEvent>>;
+type EventTx = crossfire::MAsyncTx<mpmc::List<EvmEvent>>;
+
 pub async fn listen(
     cfg: EvmConfig,
     tm: TaskManager,
     ct: CancellationToken,
+    ev: EventTx,
 ) -> Result<(), EvmListenError> {
     let ws_url = Arc::new(cfg.ws_url);
     let listen_addrs = Topic::from_iter(
