@@ -7,8 +7,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 use watchwallet::{
     cli::Cli,
-    config::Config,
+    config::{Config, EvmConfig},
     evm::{self, EvmEvent},
+    output,
 };
 
 fn exit_code(result: anyhow::Result<()>) -> std::process::ExitCode {
@@ -104,18 +105,18 @@ async fn app(tm: TaskManager, root: CancellationToken, config: Config) -> anyhow
     // 每条链一个事件通道。汇总层以后再做，这里先把事件打印出来验证链路。
     let mut handles: Vec<TaskHandle<(), (), anyhow::Error>> = Vec::new();
     for cfg in config.evm.iter().cloned() {
-        let chain_name = cfg.chain_name.clone();
+        let listen_cfg = cfg.clone();
         let (event_tx, event_rx) = mpmc::unbounded_async::<EvmEvent>();
         let event_tx = event_tx.into_async();
 
         handles.push(tm.spawn_typed(move |_tm, pu, ct| async move {
             pu.update(());
-            evm::listen(cfg, ct, event_tx).await?;
+            evm::listen(listen_cfg, ct, event_tx).await?;
             Ok(())
         }));
         handles.push(tm.spawn_typed(move |_tm, pu, ct| async move {
             pu.update(());
-            drain_events(chain_name, event_rx, ct).await?;
+            drain_events(cfg, event_rx, ct).await?;
             Ok(())
         }));
     }
@@ -146,9 +147,9 @@ fn task_failure(state: TypedTaskState<(), (), anyhow::Error>) -> Option<anyhow::
     }
 }
 
-/// 临时的事件消费者：只打印，等渲染层做好后替换。
+/// 临时的事件消费者：渲染成打印包并打印大小，等打印提交接好后替换。
 async fn drain_events(
-    chain_name: Box<str>,
+    cfg: EvmConfig,
     rx: evm::EventRx,
     ct: CancellationToken,
 ) -> anyhow::Result<()> {
@@ -161,7 +162,16 @@ async fn drain_events(
                 Err(_) => break,
             },
         };
-        tracing::info!(chain = %chain_name, ?event, "收到 EVM 事件");
+        tracing::debug!(chain = %cfg.chain_name, ?event, "收到 EVM 事件");
+        match output::evm::render(&event, &cfg) {
+            Ok(rendered) => tracing::info!(
+                chain = %cfg.chain_name,
+                template = rendered.template,
+                bytes = rendered.tar.len(),
+                "渲染打印包"
+            ),
+            Err(err) => tracing::warn!(chain = %cfg.chain_name, "渲染打印包失败: {err}"),
+        }
     }
     Ok(())
 }
