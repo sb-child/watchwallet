@@ -6,6 +6,7 @@ use alloy::{
     sol,
     transports::{RpcError, TransportError, TransportErrorKind},
 };
+use crossfire::{flavor, mpmc};
 use mytm::TaskManager;
 use snafu::{ResultExt, Snafu, ensure, futures::TryFutureExt};
 use std::sync::{Arc, LazyLock};
@@ -66,6 +67,8 @@ pub enum EvmListenError {
 
 type AddrMap = ShardMap<Address, Box<str>>;
 type AddrInfoMap = ShardMap<Address, AddressInfo>;
+type FetcherRx = crossfire::MAsyncRx<mpmc::List<(Address, crossfire::oneshot::TxOneshot<()>)>>;
+type FetcherTx = crossfire::MAsyncTx<mpmc::List<(Address, crossfire::oneshot::TxOneshot<()>)>>;
 type EvmProvider = alloy::providers::fillers::FillProvider<
     alloy::providers::fillers::JoinFill<
         alloy::providers::Identity,
@@ -97,8 +100,102 @@ struct Erc20Contract {
     decimals: u8,
 }
 
-async fn fetcher(p: EvmProvider, addr_info: AddrInfoMap, ct: CancellationToken) {
-    // let code = p.get_code_at(target).await?;
+impl std::fmt::Display for AddressInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EOA => f.write_str("EOA"),
+            Self::OtherContract => f.write_str("Contract"),
+            Self::Erc20Contract(token) => {
+                let symbol = token.symbol.as_deref().unwrap_or("Unknown");
+                match token.name.as_deref() {
+                    Some(name) if !name.is_empty() => {
+                        write!(
+                            f,
+                            "Contract: ERC-20 {symbol} ({name}) decimals={}",
+                            token.decimals
+                        )
+                    }
+                    _ => write!(f, "Contract: ERC-20 {symbol} decimals={}", token.decimals),
+                }
+            }
+        }
+    }
+}
+
+async fn fetcher(p: EvmProvider, req_rx: FetcherRx, addr_info: AddrInfoMap, ct: CancellationToken) {
+    loop {
+        // 从 req_rx 拉取地址
+        let (addr, tx) = tokio::select! {
+            _ = ct.cancelled() => return,
+            req = req_rx.recv() => match req {
+                Ok(req) => req,
+                // 所有发送端已关闭，不会再有请求
+                Err(_) => return,
+            },
+        };
+        // 如果 addr_info 有这个条目，立刻发回 ()
+        if addr_info.contains_key(&addr).await {
+            tx.send(());
+            continue;
+        }
+        // 如果没有，通过 provider 拉取信息
+        let info = tokio::select! {
+            _ = ct.cancelled() => return,
+            info = fetch_address_info(&p, addr) => match info {
+                Ok(info) => info,
+                // 如果 provider 出错，打印 tracing error，发回 ()，不要动 addr_info
+                Err(err) => {
+                    tracing::error!(address = %addr, "查询地址信息失败: {err}");
+                    tx.send(());
+                    continue;
+                }
+            },
+        };
+        // 写到 addr_info，然后再回 ()
+        tracing::info!(address = %addr, "查询到地址信息: {info}");
+        addr_info.insert(addr, info).await;
+        tx.send(());
+    }
+}
+
+/// 通过 provider 拉取地址信息。
+///
+/// - 节点正常响应但调用失败（例如合约没有对应方法而回滚）只说明该合约不是标准 ERC-20，归类为 [`AddressInfo::OtherContract`]
+/// - 没有收到节点响应的传输错误则视为 provider 出错，返回错误且不写缓存。
+async fn fetch_address_info(p: &EvmProvider, addr: Address) -> Result<AddressInfo, TransportError> {
+    let code = p.get_code_at(addr).await?;
+    if code.is_empty() {
+        return Ok(AddressInfo::EOA);
+    }
+
+    let token = IERC20Metadata::new(addr, p.clone());
+    let decimals = match token.decimals().call().await {
+        Ok(decimals) => decimals,
+        Err(alloy::contract::Error::TransportError(err)) if err.as_error_resp().is_none() => {
+            return Err(err);
+        }
+        Err(_) => return Ok(AddressInfo::OtherContract),
+    };
+    let symbol = match token.symbol().call().await {
+        Ok(symbol) => Some(symbol.into_boxed_str()),
+        Err(alloy::contract::Error::TransportError(err)) if err.as_error_resp().is_none() => {
+            return Err(err);
+        }
+        Err(_) => None,
+    };
+    let name = match token.name().call().await {
+        Ok(name) => Some(name.into_boxed_str()),
+        Err(alloy::contract::Error::TransportError(err)) if err.as_error_resp().is_none() => {
+            return Err(err);
+        }
+        Err(_) => None,
+    };
+
+    Ok(AddressInfo::Erc20Contract(Erc20Contract {
+        symbol,
+        name,
+        decimals,
+    }))
 }
 
 pub async fn listen(
@@ -107,7 +204,6 @@ pub async fn listen(
     ct: CancellationToken,
 ) -> Result<(), EvmListenError> {
     let ws_url = Arc::new(cfg.ws_url);
-
     let listen_addrs = Topic::from_iter(
         cfg.address
             .iter()
@@ -119,30 +215,32 @@ pub async fn listen(
     let transfer_or_approval =
         Topic::from_iter([*TRANSFER_EVENT_SIGNATURE, *APPROVAL_EVENT_SIGNATURE]);
     let addr_info: AddrInfoMap = ShardMap::new();
-
+    let (_fetcher_req_tx, fetcher_req_rx) = mpmc::unbounded_async();
+    let fetcher_req_tx = _fetcher_req_tx.into_async();
+    // fliters
     let filter_incoming = Filter::new()
         .event_signature(transfer_or_approval.clone())
         .topic2(listen_addrs.clone()); // to / spender
     let filter_outgoing = Filter::new()
         .event_signature(transfer_or_approval)
         .topic1(listen_addrs); // from / owner
-
     // connect to websocket
     let ws_conn = WsConnect::new(ws_url.as_str());
     let provider = ProviderBuilder::new()
         .connect_ws(ws_conn)
         .context(TransportSnafu { url: ws_url })
         .await?;
-
+    // fetcher task
+    let frx = fetcher_req_rx.clone();
     let p = provider.clone();
     let ai = addr_info.clone();
     let fetcher_task: mytm::TaskHandle<(), (), ()> = tm.spawn_typed(|_tm, pu, ct| async move {
         pu.update(());
-        fetcher(p, ai, ct).await;
+        fetcher(p, frx, ai, ct).await;
         Ok(())
     });
     fetcher_task.cancel_at(ct);
-
+    // subscriptions
     let sub_blocks = provider.subscribe_blocks().await.context(SubBlocksSnafu)?;
     let sub_incoming = provider
         .subscribe_logs(&filter_incoming)
@@ -160,11 +258,11 @@ pub async fn listen(
     loop {
         tokio::select! {
             Some(log) = incoming_stream.next() => {
-                on_incoming_log(log, addr_names.clone()).await;
+                on_incoming_log(log, fetcher_req_tx.clone(), addr_names.clone()).await;
             }
 
             Some(log) = outgoing_stream.next() => {
-                on_outgoing_log(log, addr_names.clone()).await;
+                on_outgoing_log(log, fetcher_req_tx.clone(), addr_names.clone()).await;
             }
 
             Some(header) = block_stream.next() => {
@@ -193,7 +291,7 @@ pub async fn listen(
 
 /// - 收到代币 (to)
 /// - 被授权代币 (spender)
-async fn on_incoming_log(log: Log, am: AddrMap) {
+async fn on_incoming_log(log: Log, ftx: FetcherTx, am: AddrMap) {
     let Some(t0) = log.topic0() else {
         return;
     };
@@ -222,4 +320,4 @@ async fn on_incoming_log(log: Log, am: AddrMap) {
 
 /// - 花出代币 (from)
 /// - 授权代币给别人 (owner)
-async fn on_outgoing_log(log: Log, am: AddrMap) {}
+async fn on_outgoing_log(log: Log, ftx: FetcherTx, am: AddrMap) {}
