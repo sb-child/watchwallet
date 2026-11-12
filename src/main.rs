@@ -9,7 +9,7 @@ use watchwallet::{
     cli::Cli,
     config::{Config, EvmConfig},
     evm::{self, EvmEvent},
-    output,
+    output, printer,
 };
 
 fn exit_code(result: anyhow::Result<()>) -> std::process::ExitCode {
@@ -102,10 +102,30 @@ async fn app(tm: TaskManager, root: CancellationToken, config: Config) -> anyhow
         anyhow::bail!("配置里没有任何 EVM 链");
     }
 
-    // 每条链一个事件通道。汇总层以后再做，这里先把事件打印出来验证链路。
+    // 每条链一个事件通道；事件由独立的 consumer 渲染并投递到全局打印队列。
     let mut handles: Vec<TaskHandle<(), (), anyhow::Error>> = Vec::new();
+
+    let (print_tx, print_rx) = printer::channel(printer::QUEUE_CAPACITY);
+    let print_tx = match config.dzserver.as_ref() {
+        Some(dzserver) => {
+            tracing::info!(url = %dzserver.grpc_url, "启用 dzserver 打印");
+            let printer = printer::Printer::connect(&dzserver.grpc_url)?;
+            handles.push(tm.spawn_typed(move |_tm, pu, ct| async move {
+                pu.update(());
+                printer::run(printer, print_rx, ct).await;
+                Ok(())
+            }));
+            Some(print_tx)
+        }
+        None => {
+            tracing::warn!("未配置 dzserver，只渲染打印包，不提交打印");
+            None
+        }
+    };
+
     for cfg in config.evm.iter().cloned() {
         let listen_cfg = cfg.clone();
+        let print_tx = print_tx.clone();
         let (event_tx, event_rx) = mpmc::unbounded_async::<EvmEvent>();
         let event_tx = event_tx.into_async();
 
@@ -116,7 +136,7 @@ async fn app(tm: TaskManager, root: CancellationToken, config: Config) -> anyhow
         }));
         handles.push(tm.spawn_typed(move |_tm, pu, ct| async move {
             pu.update(());
-            drain_events(cfg, event_rx, ct).await?;
+            drain_events(cfg, event_rx, print_tx, ct).await?;
             Ok(())
         }));
     }
@@ -141,16 +161,17 @@ async fn app(tm: TaskManager, root: CancellationToken, config: Config) -> anyhow
 /// 把任务终态里的失败原因转成错误。取消和正常结束都返回 [`None`]。
 fn task_failure(state: TypedTaskState<(), (), anyhow::Error>) -> Option<anyhow::Error> {
     match state {
-        TypedTaskState::Failed(err) => Some(anyhow::anyhow!("EVM 任务失败: {err:#}")),
-        TypedTaskState::Panicked(msg) => Some(anyhow::anyhow!("EVM 任务崩溃: {msg}")),
+        TypedTaskState::Failed(err) => Some(anyhow::anyhow!("任务失败: {err:#}")),
+        TypedTaskState::Panicked(msg) => Some(anyhow::anyhow!("任务崩溃: {msg}")),
         _ => None,
     }
 }
 
-/// 临时的事件消费者：渲染成打印包并打印大小，等打印提交接好后替换。
+/// 事件消费者：渲染成打印包，配置了 dzserver 时投递到打印队列。
 async fn drain_events(
     cfg: EvmConfig,
     rx: evm::EventRx,
+    print: Option<printer::PrintTx>,
     ct: CancellationToken,
 ) -> anyhow::Result<()> {
     loop {
@@ -164,12 +185,34 @@ async fn drain_events(
         };
         tracing::debug!(chain = %cfg.chain_name, ?event, "收到 EVM 事件");
         match output::evm::render(&event, &cfg) {
-            Ok(rendered) => tracing::info!(
-                chain = %cfg.chain_name,
-                template = rendered.template,
-                bytes = rendered.tar.len(),
-                "渲染打印包"
-            ),
+            Ok(rendered) => match &print {
+                Some(tx) => {
+                    let job = printer::PrintJob {
+                        label: format!("{} / {}", cfg.chain_name, rendered.template),
+                        typst_tar: rendered.tar,
+                    };
+                    match tx.try_send(job) {
+                        Ok(()) => {}
+                        Err(crossfire::TrySendError::Full(job)) => tracing::warn!(
+                            chain = %cfg.chain_name,
+                            label = %job.label,
+                            bytes = job.typst_tar.len(),
+                            "打印队列已满，丢弃打印任务"
+                        ),
+                        Err(crossfire::TrySendError::Disconnected(job)) => tracing::warn!(
+                            chain = %cfg.chain_name,
+                            label = %job.label,
+                            "打印队列已关闭，丢弃打印任务"
+                        ),
+                    }
+                }
+                None => tracing::info!(
+                    chain = %cfg.chain_name,
+                    template = rendered.template,
+                    bytes = rendered.tar.len(),
+                    "渲染打印包"
+                ),
+            },
             Err(err) => tracing::warn!(chain = %cfg.chain_name, "渲染打印包失败: {err}"),
         }
     }

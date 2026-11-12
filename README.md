@@ -3,8 +3,8 @@
 链上钱包活动监听器
 
 - [x] 配置文件和解析
-- [ ] EVM 链上接口
-- [ ] dzserver 通知后端
+- [x] EVM 链上接口
+- [x] dzserver 通知后端
 - [ ] 文档
 
 ## 介绍
@@ -20,6 +20,8 @@
 ## 通知后端
 
 - [dzserver](https://github.com/sb-child/dz-print#%E6%89%93%E5%8D%B0%E6%9C%8D%E5%8A%A1%E5%99%A8dzserver)
+
+配置 `[dzserver]` 后，钱包事件会渲染成打印包并提交给 dzserver；不配置时只渲染，不提交打印。
 
 ## License
 

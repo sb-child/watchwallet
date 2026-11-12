@@ -28,3 +28,7 @@ native_transfer = true
 [[evm.address]]
 name = "first wallet"
 addr = "0x"
+
+# 可选。加上这个配置启用 dzserver 推送。
+[dzserver]
+grpc_url = "http://127.0.0.1:54321"

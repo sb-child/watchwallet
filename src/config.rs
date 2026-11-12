@@ -4,8 +4,18 @@ use url::Url;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    /// dzserver 配置
+    // 约定：不配置时只监听和渲染，不提交打印。
+    #[serde(default)]
+    pub dzserver: Option<DzserverConfig>,
     /// EVM 链配置
     pub evm: Box<[EvmConfig]>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DzserverConfig {
+    /// dzserver gRPC 地址
+    pub grpc_url: Url,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -65,5 +75,31 @@ addr = "0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3"
     #[test]
     fn native_transfer_can_be_disabled() {
         assert!(!parse("native_transfer = false").evm[0].native_transfer);
+    }
+
+    #[test]
+    fn dzserver_is_optional() {
+        assert!(parse("").dzserver.is_none());
+    }
+
+    #[test]
+    fn dzserver_parses_grpc_url() {
+        let text = r#"
+[dzserver]
+grpc_url = "http://127.0.0.1:50051"
+
+[[evm]]
+chain_name = "Ethereum Mainnet"
+ws_url = "wss://example.com/v2/key"
+coin = "ETH"
+[[evm.address]]
+name = "wallet"
+addr = "0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3"
+"#;
+        let config: Config = toml::from_str(text).unwrap();
+        let url = config.dzserver.unwrap().grpc_url;
+        assert_eq!(url.scheme(), "http");
+        assert_eq!(url.host_str(), Some("127.0.0.1"));
+        assert_eq!(url.port(), Some(50051));
     }
 }
