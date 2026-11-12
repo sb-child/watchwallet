@@ -6,7 +6,7 @@ use alloy::{
     sol,
     transports::{RpcError, TransportError, TransportErrorKind},
 };
-use crossfire::{flavor, mpmc};
+use crossfire::{flavor, mpmc, oneshot};
 use mytm::TaskManager;
 use snafu::{ResultExt, Snafu, ensure, futures::TryFutureExt};
 use std::sync::{Arc, LazyLock};
@@ -93,6 +93,15 @@ enum AddressInfo {
     OtherContract,
 }
 
+impl AddressInfo {
+    pub fn is_contract(&self) -> bool {
+        match self {
+            AddressInfo::EOA => false,
+            _ => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Erc20Contract {
     symbol: Option<Box<str>>,
@@ -156,6 +165,15 @@ async fn fetcher(p: EvmProvider, req_rx: FetcherRx, addr_info: AddrInfoMap, ct: 
         addr_info.insert(addr, info).await;
         tx.send(());
     }
+}
+
+async fn query_fetcher(addr: Address, ftx: &FetcherTx, ai: &AddrInfoMap) -> Option<AddressInfo> {
+    let (tx, rx) = oneshot::oneshot();
+    // 请求 fetcher 查询。通道已关闭时直接放弃。
+    ftx.send((addr, tx)).await.ok()?;
+    // fetcher 处理完（无论成功与否）都会发回信号，之后从缓存读取结果。
+    let _ = rx.await;
+    ai.get(&addr).await.map(|x| x.value().clone())
 }
 
 /// 通过 provider 拉取地址信息。
@@ -239,7 +257,7 @@ pub async fn listen(
         fetcher(p, frx, ai, ct).await;
         Ok(())
     });
-    fetcher_task.cancel_at(ct);
+    fetcher_task.cancel_at(ct.clone());
     // subscriptions
     let sub_blocks = provider.subscribe_blocks().await.context(SubBlocksSnafu)?;
     let sub_incoming = provider
@@ -250,19 +268,21 @@ pub async fn listen(
         .subscribe_logs(&filter_outgoing)
         .await
         .context(SubLogsSnafu)?;
-
+    // streams
     let mut incoming_stream = sub_incoming.into_stream();
     let mut outgoing_stream = sub_outgoing.into_stream();
     let mut block_stream = sub_blocks.into_stream();
-
+    // event loop
     loop {
         tokio::select! {
+            _ = ct.cancelled() => break,
+
             Some(log) = incoming_stream.next() => {
-                on_incoming_log(log, fetcher_req_tx.clone(), addr_names.clone()).await;
+                on_incoming_log(log, fetcher_req_tx.clone(), addr_names.clone(), addr_info.clone()).await;
             }
 
             Some(log) = outgoing_stream.next() => {
-                on_outgoing_log(log, fetcher_req_tx.clone(), addr_names.clone()).await;
+                on_outgoing_log(log, fetcher_req_tx.clone(), addr_names.clone(), addr_info.clone()).await;
             }
 
             Some(header) = block_stream.next() => {
@@ -285,13 +305,12 @@ pub async fn listen(
             }
         }
     }
-
     Ok(())
 }
 
 /// - 收到代币 (to)
 /// - 被授权代币 (spender)
-async fn on_incoming_log(log: Log, ftx: FetcherTx, am: AddrMap) {
+async fn on_incoming_log(log: Log, ftx: FetcherTx, am: AddrMap, ai: AddrInfoMap) {
     let Some(t0) = log.topic0() else {
         return;
     };
@@ -305,10 +324,17 @@ async fn on_incoming_log(log: Log, ftx: FetcherTx, am: AddrMap) {
     }
     let coin_amount = U256::from_be_slice(&data[..32]);
     let coin_contract = log.address();
+    let coin_info = match query_fetcher(coin_contract, &ftx, &ai).await {
+        Some(AddressInfo::Erc20Contract(c)) => c,
+        Some(_) => return,
+        None => return,
+    };
     if *t0 == *TRANSFER_EVENT_SIGNATURE {
         // ERC-20 Transfer
         let transfer_from = Address::from_word(topics[1]);
+        let transfer_from_info = query_fetcher(transfer_from, &ftx, &ai).await;
         let transfer_to = Address::from_word(topics[2]);
+        let transfer_to_info = query_fetcher(transfer_to, &ftx, &ai).await;
     } else if *t0 == *APPROVAL_EVENT_SIGNATURE {
         // ERC-20 Approval
         let approval_owner = Address::from_word(topics[1]);
@@ -320,4 +346,4 @@ async fn on_incoming_log(log: Log, ftx: FetcherTx, am: AddrMap) {
 
 /// - 花出代币 (from)
 /// - 授权代币给别人 (owner)
-async fn on_outgoing_log(log: Log, ftx: FetcherTx, am: AddrMap) {}
+async fn on_outgoing_log(log: Log, ftx: FetcherTx, am: AddrMap, ai: AddrInfoMap) {}
