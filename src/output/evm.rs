@@ -46,6 +46,7 @@ fn template_name(event: &EvmEvent) -> &'static str {
     }
 }
 
+// 约定：拿不到的值一律传空字符串（没名字、没手续费、没 txid 等），由模板决定要不要隐藏。
 fn build_vars(event: &EvmEvent, cfg: &EvmConfig) -> Vec<(&'static str, Value)> {
     match event {
         EvmEvent::TokenTransfer(event) => transfer_vars(event, cfg),
@@ -335,6 +336,43 @@ mod tests {
         let main = main_typ(&out.tar);
         // 拿不到手续费时传空串，模板会隐藏网络费
         assert!(main.contains(r#"x: "", def: "0.3333333332222333""#));
+    }
+
+    #[test]
+    fn missing_values_are_empty_strings() {
+        let event = EvmEvent::TokenTransfer(Box::new(TokenTransferEvent {
+            watched: account(RECP, None, false),
+            counterparty: account(SENDER, None, false),
+            direction: TransferDirection::Recv,
+            token: Erc20TokenInfo {
+                contract: TOKEN,
+                symbol: None,
+                name: None,
+                decimals: 6,
+            },
+            amount: U256::from(1_000_000u64),
+            tx_hash: TX,
+            tx_info: None,
+        }));
+        let out = render(&event, &cfg()).unwrap();
+        let main = main_typ(&out.tar);
+
+        // 没有 symbol / name / 手续费 / 地址名字时都是空字符串
+        assert!(main.contains(r#"x: "", def: "USDT""#));
+        assert!(main.contains(r#"x: "", def: "Tether USD""#));
+        assert!(main.contains(r#"x: "", def: "0.3333333332222333""#));
+        assert!(main.contains(r#"x: "", def: "sbchild钱包1""#));
+        // tx_id 一定有值
+        assert!(
+            main.contains("0xce656824ee4da940ca08901088940d52b4fe1b5a7b4b21007daaec4f1c315529")
+        );
+    }
+
+    #[test]
+    fn native_coin_name_is_always_empty() {
+        let out = render(&native_transfer(TransferDirection::Recv, None), &cfg()).unwrap();
+        let main = main_typ(&out.tar);
+        assert!(main.contains(r#"x: "", def: """#));
     }
 
     #[test]
