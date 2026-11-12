@@ -23,6 +23,14 @@
 
 配置 `[dzserver]` 后，钱包事件会渲染成打印包并提交给 dzserver；不配置时只渲染，不提交打印。
 
+## dzserver 参数示例
+
+```bash
+dzserver /tmp/dzserver '127.0.0.1:54321' --font /usr/local/share/fonts/LXGWWenKaiGB/LXGWWenKaiGB-Light.ttf --font /usr/local/share/fonts/LXGWWenKaiGB/LXGWWenKaiGB-Medium.ttf --font /usr/local/share/fonts/LXGWWenKaiGB/LXGWWenKaiGB-Regular.ttf --font /usr/share/fonts/jetbrains-mono-fonts/JetBrainsMono-ExtraBold.otf --font /usr/share/fonts/jetbrains-mono-fonts/JetBrainsMono-Regular.otf
+```
+
+准备好相关字体。
+
 ## License
 
 MIT
