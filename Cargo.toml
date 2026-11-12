@@ -6,7 +6,6 @@ license = "MIT"
 authors = ["sbchild <sbchild0@gmail.com>"]
 
 [dependencies]
-rayon = "1.12.0"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = { version = "0.7.20", features = ["rt"] }
 anyhow = { version = "1.0.104" }
@@ -14,7 +13,6 @@ clap = { version = "4.6", features = ["derive"] }
 chrono = { version = "0.4.45" }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-tempfile = { version = "3.27.0" }
 snafu = { version = "0.9.2", features = ["futures"] }
 crossfire = { version = "3.1.22", features = ["tokio"] }
 mytm = { git = "https://github.com/sb-child/mytm", rev = "fd1b520d30f40c17905e375c8d1f1e17d02eb7c8" }
@@ -23,15 +21,15 @@ tonic = { version = "0.14.9" }
 prost = { version = "0.14.5" }
 tokio-stream = { version = "0.1.19", features = ["net"] }
 tonic-prost = { version = "0.14.9" }
-uuid = { version = "1", features = ["v4"] }
-humantime = "2.4.0"
 alloy = { version = "2.5.0", features = ["full"] }
 moka = { version = "0.12.16", features = ["future"] }
 tar = "0.4.46"
 serde = { version = "1.0.229", features = ["derive"] }
 url = { version = "2.5.8", features = ["serde"] }
 toml = "1.2.1"
-whirlwind = { git = "https://github.com/sb-child/whirlwind", rev = "dec605442523e0fadc30fbe6490aea9681ab8f1c" }
+
+[dev-dependencies]
+tempfile = "3.27.0"
 
 [build-dependencies]
 tonic-prost-build = "0.14.9"
