@@ -10,7 +10,7 @@ use crate::{
     },
     template::{self, RenderError, Value},
 };
-use alloy::primitives::{B256, U256};
+use alloy::primitives::{B256, Keccak256, U256, hex};
 use chrono::{DateTime, Local, Utc};
 
 /// 原生币的小数位，EVM 链统一是 18。
@@ -143,7 +143,7 @@ fn base_vars(
         ("datetime", Value::from(datetime_text(tx_info))),
         ("tx_fee", Value::from(tx_fee_text(tx_info))),
         ("tx_fee_coin_symbol", Value::from(&*cfg.coin)),
-        ("tx_id", Value::from(tx_hash.to_string())),
+        ("tx_id", Value::from(checksum_hex(tx_hash.as_slice()))),
         ("transfer_value", Value::from(transfer_value)),
     ]
 }
@@ -157,7 +157,10 @@ fn push_token(vars: &mut Vec<(&'static str, Value)>, token: &Erc20TokenInfo) {
         "coin_name",
         Value::from(token.name.as_deref().unwrap_or("")),
     ));
-    vars.push(("token_contract", Value::from(token.contract.to_string())));
+    vars.push((
+        "token_contract",
+        Value::from(checksum_hex(token.contract.as_slice())),
+    ));
 }
 
 fn push_account(
@@ -167,9 +170,34 @@ fn push_account(
     contract_key: &'static str,
     account: &AccountInfo,
 ) {
-    vars.push((address_key, Value::from(account.addr.to_string())));
+    vars.push((
+        address_key,
+        Value::from(checksum_hex(account.addr.as_slice())),
+    ));
     vars.push((name_key, Value::from(account.name.as_deref().unwrap_or(""))));
     vars.push((contract_key, Value::Bool(account.is_contract)));
+}
+
+// 约定：模板里的所有 0x 值都显示成混合大小写（EIP-55 风格）。
+// EIP-55 只定义在 20 字节地址上，哈希也套用同一算法，保证观感一致；十六进制大小写不影响复制粘贴。
+/// 按 EIP-55 生成混合大小写的十六进制字符串。
+fn checksum_hex(bytes: &[u8]) -> String {
+    let lower = hex::encode(bytes);
+    let mut hasher = Keccak256::new();
+    hasher.update(lower.as_bytes());
+    let hash = hasher.finalize();
+
+    let mut out = String::with_capacity(2 + lower.len());
+    out.push_str("0x");
+    for (index, ch) in lower.chars().enumerate() {
+        let nibble = (hash[index / 2] >> if index % 2 == 0 { 4 } else { 0 }) & 0x0f;
+        if ch.is_ascii_alphabetic() && nibble >= 8 {
+            out.push(ch.to_ascii_uppercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 /// 链上整数按 decimals 转成十进制字符串，去掉多余的零。
@@ -311,19 +339,55 @@ mod tests {
     }
 
     #[test]
+    fn checksum_matches_eip55_vectors() {
+        let vectors = [
+            (
+                "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed",
+                "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+            ),
+            (
+                "0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359",
+                "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
+            ),
+            (
+                "0xdbf03b407c01e7cd3cbea99509d93f8dddc8c6fb",
+                "0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB",
+            ),
+            (
+                "0xd1220a0cf47c7b9be7a2e6ba89f429762e7b9adb",
+                "0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb",
+            ),
+        ];
+        for (input, expected) in vectors {
+            let address: Address = input.parse().unwrap();
+            assert_eq!(checksum_hex(address.as_slice()), expected);
+        }
+    }
+
+    #[test]
+    fn hash_keeps_hex_value() {
+        let text = checksum_hex(TX.as_slice());
+        assert_eq!(
+            text.to_ascii_lowercase(),
+            format!("0x{}", hex::encode(TX.as_slice()))
+        );
+        assert_ne!(text, text.to_ascii_lowercase());
+    }
+
+    #[test]
     fn renders_erc20_send() {
         let event = token_transfer(TransferDirection::Send, Some(tx_info()));
         let out = render(&event, &cfg()).unwrap();
         assert_eq!(out.template, "evm-erc20-send");
 
         let main = main_typ(&out.tar);
-        assert!(main.contains(r#"x: "123.456789""#));
-        assert!(main.contains(r#"x: "PYUSD""#));
-        assert!(main.contains(r#"x: "PayPal USD""#));
-        assert!(main.contains(r#"x: "Arbitrum One""#));
-        assert!(main.contains(r#"x: "0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3""#));
-        assert!(main.contains(r#"x: "0x233b7f746aBAc0797E8dBC344b638F1C4225F264""#));
-        assert!(main.contains(r#"x: "0.000024""#));
+        assert!(main.contains(r#"x: "123.456789", def:"#));
+        assert!(main.contains(r#"x: "PYUSD", def:"#));
+        assert!(main.contains(r#"x: "PayPal USD", def:"#));
+        assert!(main.contains(r#"x: "Arbitrum One", def:"#));
+        assert!(main.contains(r#"x: "0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3", def:"#));
+        assert!(main.contains(r#"x: "0x233b7f746aBAc0797E8dBC344b638F1C4225F264", def:"#));
+        assert!(main.contains(r#"x: "0.000024", def:"#));
         assert!(!main.contains("{{"));
     }
 
@@ -362,10 +426,10 @@ mod tests {
         assert!(main.contains(r#"x: "", def: "Tether USD""#));
         assert!(main.contains(r#"x: "", def: "0.3333333332222333""#));
         assert!(main.contains(r#"x: "", def: "sbchild钱包1""#));
-        // tx_id 一定有值
-        assert!(
-            main.contains("0xce656824ee4da940ca08901088940d52b4fe1b5a7b4b21007daaec4f1c315529")
-        );
+        // tx_id 一定有值，且显示成混合大小写
+        assert!(main.contains(
+            r#"x: "0xCE656824EE4dA940ca08901088940D52b4Fe1B5a7b4b21007dAAEc4F1c315529", def:"#
+        ));
     }
 
     #[test]
