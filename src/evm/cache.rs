@@ -40,13 +40,16 @@ impl EvmCtx {
     }
 
     /// 查询地址信息，并带上配置里写的名字。
-    pub async fn account(&self, addr: Address) -> Option<AccountInfo> {
-        let info = self.lookup(addr).await?;
-        Some(AccountInfo {
+    ///
+    /// 地址信息只用于展示（是否合约），查询失败时退化为 EOA，避免丢失整条通知；
+    /// 失败结果不写缓存，下次事件会重新查询。
+    pub async fn account(&self, addr: Address) -> AccountInfo {
+        let is_contract = matches!(self.lookup(addr).await, Some(info) if info.is_contract());
+        AccountInfo {
             addr,
             name: self.names.get(&addr).cloned(),
-            is_contract: info.is_contract(),
-        })
+            is_contract,
+        }
     }
 
     /// 查询 ERC-20 代币信息。不是标准 ERC-20 时返回 [`None`]。

@@ -1,51 +1,25 @@
 pub mod address;
 pub mod cache;
 pub mod event;
+pub mod log;
 pub mod tx;
 
-use address::{AddressInfo, fetch_address_info};
-
+pub use cache::EvmCtx;
 pub use event::{EvmEvent, TransferDirection};
 
 use crate::config::EvmConfig;
 use alloy::{
-    primitives::{Address, B256, Keccak256, U256},
+    primitives::B256,
     providers::{Provider as _, ProviderBuilder, WsConnect},
-    rpc::types::{Filter, Log, Topic},
+    rpc::types::{Filter, Topic},
     transports::{RpcError, TransportError, TransportErrorKind},
 };
-use crossfire::{flavor, mpmc, oneshot};
-use mytm::TaskManager;
+use crossfire::mpmc;
 use snafu::{ResultExt, Snafu, ensure, futures::TryFutureExt};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use url::Url;
-use whirlwind::ShardMap;
-
-/// ERC-20 / ERC-721 Transfer
-static TRANSFER_EVENT_SIGNATURE: LazyLock<B256> = LazyLock::new(|| {
-    let mut h = Keccak256::new();
-    // ERC-20
-    // T0 hash  T1 from T2 to   Data amount
-    // Transfer(address,address,uint256)
-
-    // ERC-721
-    // T0 hash  T1 from T2 to   T3 tokenId  Data 0x  amount=1
-    // Transfer(address,address,uint256)
-    h.update("Transfer(address,address,uint256)");
-    h.finalize()
-});
-
-/// ERC-20 Approval
-static APPROVAL_EVENT_SIGNATURE: LazyLock<B256> = LazyLock::new(|| {
-    let mut h = Keccak256::new();
-    // ERC-20
-    // T0 hash  T1 owner  T2 spender  Data amount
-    // Approval(address,address,uint256)
-    h.update("Approval(address,address,uint256)");
-    h.finalize()
-});
 
 #[derive(Debug, Snafu)]
 pub enum EvmListenError {
@@ -64,10 +38,6 @@ pub enum EvmListenError {
     EmptyAddress,
 }
 
-type AddrMap = ShardMap<Address, Box<str>>;
-type AddrInfoMap = ShardMap<Address, AddressInfo>;
-type FetcherRx = crossfire::MAsyncRx<mpmc::List<(Address, crossfire::oneshot::TxOneshot<()>)>>;
-type FetcherTx = crossfire::MAsyncTx<mpmc::List<(Address, crossfire::oneshot::TxOneshot<()>)>>;
 type EvmProvider = alloy::providers::fillers::FillProvider<
     alloy::providers::fillers::JoinFill<
         alloy::providers::Identity,
@@ -85,54 +55,12 @@ type EvmProvider = alloy::providers::fillers::FillProvider<
     alloy::providers::RootProvider,
 >;
 
-async fn fetcher(p: EvmProvider, req_rx: FetcherRx, addr_info: AddrInfoMap, ct: CancellationToken) {
-    loop {
-        // 从 req_rx 拉取地址
-        let (addr, tx) = tokio::select! {
-            _ = ct.cancelled() => return,
-            req = req_rx.recv() => match req {
-                Ok(req) => req,
-                // 所有发送端已关闭，不会再有请求
-                Err(_) => return,
-            },
-        };
-        // 如果 addr_info 有这个条目，立刻发回 ()
-        if addr_info.contains_key(&addr).await {
-            tx.send(());
-            continue;
-        }
-        // 如果没有，通过 provider 拉取信息
-        let info = tokio::select! {
-            _ = ct.cancelled() => return,
-            info = fetch_address_info(&p, addr) => info,
-        };
-        // provider 出错时已经打印日志，不动 addr_info，等下次事件再试
-        let Some(info) = info else {
-            tx.send(());
-            continue;
-        };
-        // 写到 addr_info，然后再回 ()
-        tracing::info!(address = %addr, "查询到地址信息: {info}");
-        addr_info.insert(addr, info).await;
-        tx.send(());
-    }
-}
-
-async fn query_fetcher(addr: Address, ftx: &FetcherTx, ai: &AddrInfoMap) -> Option<AddressInfo> {
-    let (tx, rx) = oneshot::oneshot();
-    // 请求 fetcher 查询。通道已关闭时直接放弃。
-    ftx.send((addr, tx)).await.ok()?;
-    // fetcher 处理完（无论成功与否）都会发回信号，之后从缓存读取结果。
-    let _ = rx.await;
-    ai.get(&addr).await.map(|x| x.value().clone())
-}
-
-type EventRx = crossfire::MAsyncRx<mpmc::List<EvmEvent>>;
-type EventTx = crossfire::MAsyncTx<mpmc::List<EvmEvent>>;
+/// 每条链一个事件通道，事件本身不带链信息。
+pub type EventRx = crossfire::MAsyncRx<mpmc::List<EvmEvent>>;
+pub type EventTx = crossfire::MAsyncTx<mpmc::List<EvmEvent>>;
 
 pub async fn listen(
     cfg: EvmConfig,
-    tm: TaskManager,
     ct: CancellationToken,
     ev: EventTx,
 ) -> Result<(), EvmListenError> {
@@ -143,14 +71,11 @@ pub async fn listen(
             .map(|x| B256::from_slice(x.addr.into_word().as_slice())),
     );
     ensure!(listen_addrs.len() > 0, EmptyAddressSnafu);
-    let addr_names: AddrMap =
-        ShardMap::from_iter(cfg.address.iter().map(|x| (x.addr, x.name.clone())));
-    let transfer_or_approval =
-        Topic::from_iter([*TRANSFER_EVENT_SIGNATURE, *APPROVAL_EVENT_SIGNATURE]);
-    let addr_info: AddrInfoMap = ShardMap::new();
-    let (_fetcher_req_tx, fetcher_req_rx) = mpmc::unbounded_async();
-    let fetcher_req_tx = _fetcher_req_tx.into_async();
     // fliters
+    let transfer_or_approval = Topic::from_iter([
+        *log::TRANSFER_EVENT_SIGNATURE,
+        *log::APPROVAL_EVENT_SIGNATURE,
+    ]);
     let filter_incoming = Filter::new()
         .event_signature(transfer_or_approval.clone())
         .topic2(listen_addrs.clone()); // to / spender
@@ -163,16 +88,10 @@ pub async fn listen(
         .connect_ws(ws_conn)
         .context(TransportSnafu { url: ws_url })
         .await?;
-    // fetcher task
-    let frx = fetcher_req_rx.clone();
-    let p = provider.clone();
-    let ai = addr_info.clone();
-    let fetcher_task: mytm::TaskHandle<(), (), ()> = tm.spawn_typed(|_tm, pu, ct| async move {
-        pu.update(());
-        fetcher(p, frx, ai, ct).await;
-        Ok(())
-    });
-    fetcher_task.cancel_at(ct.clone());
+    let ctx = EvmCtx::new(
+        provider.clone(),
+        cfg.address.iter().map(|x| (x.addr, x.name.clone())),
+    );
     // subscriptions
     let sub_blocks = provider.subscribe_blocks().await.context(SubBlocksSnafu)?;
     let sub_incoming = provider
@@ -193,75 +112,19 @@ pub async fn listen(
             _ = ct.cancelled() => break,
 
             Some(log) = incoming_stream.next() => {
-                on_incoming_log(log, fetcher_req_tx.clone(), addr_names.clone(), addr_info.clone()).await;
+                // 收到代币 (to) / 被授权代币 (spender)
+                log::spawn_log(log, TransferDirection::Recv, ctx.clone(), ev.clone(), ct.clone());
             }
 
             Some(log) = outgoing_stream.next() => {
-                on_outgoing_log(log, fetcher_req_tx.clone(), addr_names.clone(), addr_info.clone()).await;
+                // 花出代币 (from) / 授权代币给别人 (owner)
+                log::spawn_log(log, TransferDirection::Send, ctx.clone(), ev.clone(), ct.clone());
             }
 
-            Some(header) = block_stream.next() => {
-                // // 在 L2 上，为节省 RPC 消耗，只在需要时精细化查询该区块
-                // if let Ok(Some(block)) = provider.get_block_by_number(header.number.into(), true).await {
-                //     if let Some(txs) = block.transactions.as_full() {
-                //         for tx in txs {
-                //             if tx.to == Some(target_address) && tx.value > alloy::primitives::U256::ZERO {
-                //                 tracing::info!("💰 [{}] 收到原生币转账: {} wei, Hash: {:?}", chain_name, tx.value, tx.hash);
-                //             } else if tx.from == target_address {
-                //                 if tx.to.is_none() {
-                //                     tracing::info!("🏗️ [{}] 部署了新合约！Hash: {:?}", chain_name, tx.hash);
-                //                 } else {
-                //                     tracing::info!("📤 [{}] 发起原生币转账 / 合约交互, Hash: {:?}", chain_name, tx.hash);
-                //                 }
-                //             }
-                //         }
-                //     }
-                // }
+            Some(_header) = block_stream.next() => {
+                // 原生币转账需要在这里按区块扫描交易，对应 template/evm-native-*.typ
             }
         }
     }
     Ok(())
 }
-
-/// - 收到代币 (to)
-/// - 被授权代币 (spender)
-async fn on_incoming_log(log: Log, ftx: FetcherTx, am: AddrMap, ai: AddrInfoMap) {
-    let Some(t0) = log.topic0() else {
-        return;
-    };
-    let topics = log.topics();
-    let data = &log.data().data;
-    if topics.len() != 3 {
-        return;
-    }
-    if data.len() < 32 {
-        return;
-    }
-    let Some(txid) = log.transaction_hash else {
-        return;
-    };
-    let coin_amount = U256::from_be_slice(&data[..32]);
-    let coin_contract = log.address();
-    let coin_info = match query_fetcher(coin_contract, &ftx, &ai).await {
-        Some(AddressInfo::Erc20Contract(c)) => c,
-        Some(_) => return,
-        None => return,
-    };
-    if *t0 == *TRANSFER_EVENT_SIGNATURE {
-        // ERC-20 Transfer
-        let transfer_from = Address::from_word(topics[1]);
-        let transfer_from_info = query_fetcher(transfer_from, &ftx, &ai).await;
-        let transfer_to = Address::from_word(topics[2]);
-        let transfer_to_info = query_fetcher(transfer_to, &ftx, &ai).await;
-    } else if *t0 == *APPROVAL_EVENT_SIGNATURE {
-        // ERC-20 Approval
-        let approval_owner = Address::from_word(topics[1]);
-        let approval_spender = Address::from_word(topics[2]);
-    } else {
-        return;
-    }
-}
-
-/// - 花出代币 (from)
-/// - 授权代币给别人 (owner)
-async fn on_outgoing_log(log: Log, ftx: FetcherTx, am: AddrMap, ai: AddrInfoMap) {}
