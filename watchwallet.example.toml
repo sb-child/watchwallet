@@ -2,6 +2,8 @@
 chain_name = "Ethereum Mainnet"
 ws_url = "wss://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
 coin = "ETH"
+# 是否监听原生币转账。需要为每个新区块拉取完整区块，出块快的链可以设为 false。
+native_transfer = true
 [[evm.address]]
 name = "first wallet"
 addr = "0x"
@@ -9,6 +11,8 @@ addr = "0x"
 chain_name = "Arbitrum One"
 ws_url = "wss://arb-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
 coin = "ETH"
+# 是否监听原生币转账。需要为每个新区块拉取完整区块，出块快的链可以设为 false。
+native_transfer = true
 [[evm.address]]
 name = "first wallet"
 addr = "0x"
@@ -19,6 +23,8 @@ addr = "0x"
 chain_name = "Polygon PoS"
 ws_url = "wss://polygon-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
 coin = "POL"
+# 是否监听原生币转账。需要为每个新区块拉取完整区块，出块快的链可以设为 false。
+native_transfer = true
 [[evm.address]]
 name = "first wallet"
 addr = "0x"

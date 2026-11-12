@@ -12,7 +12,7 @@ use crate::config::EvmConfig;
 use alloy::{
     primitives::B256,
     providers::{Provider as _, ProviderBuilder, WsConnect},
-    pubsub::Subscription,
+    pubsub::{Subscription, SubscriptionStream},
     rpc::types::{Filter, Header, Log, Topic},
     transports::{RpcError, TransportError, TransportErrorKind},
 };
@@ -73,7 +73,8 @@ struct Subscriptions {
     incoming: Subscription<Log>,
     outgoing: Subscription<Log>,
     /// 新区块头。每来一个区块就去拉完整区块，扫描原生币转账。
-    blocks: Subscription<Header>,
+    /// 配置关掉原生币转账时为 [`None`]，不会订阅。
+    blocks: Option<Subscription<Header>>,
 }
 
 pub async fn listen(
@@ -83,7 +84,7 @@ pub async fn listen(
 ) -> Result<(), EvmListenError> {
     let provider = connect_provider(&cfg.ws_url).await?;
     let filters = build_filters(&cfg)?;
-    let subs = subscribe(&provider, &filters).await?;
+    let subs = subscribe(&provider, &filters, cfg.native_transfer).await?;
     let ctx = EvmCtx::new(
         provider.clone(),
         cfg.address.iter().map(|x| (x.addr, x.name.clone())),
@@ -124,6 +125,7 @@ fn build_filters(cfg: &EvmConfig) -> Result<Filters, EvmListenError> {
 async fn subscribe(
     provider: &EvmProvider,
     filters: &Filters,
+    native_transfer: bool,
 ) -> Result<Subscriptions, EvmListenError> {
     let incoming = provider
         .subscribe_logs(&filters.incoming)
@@ -133,7 +135,11 @@ async fn subscribe(
         .subscribe_logs(&filters.outgoing)
         .await
         .context(SubLogsSnafu)?;
-    let blocks = provider.subscribe_blocks().await.context(SubBlocksSnafu)?;
+    let blocks = if native_transfer {
+        Some(provider.subscribe_blocks().await.context(SubBlocksSnafu)?)
+    } else {
+        None
+    };
     Ok(Subscriptions {
         incoming,
         outgoing,
@@ -150,7 +156,7 @@ async fn run_event_loop(
 ) -> Result<(), EvmListenError> {
     let mut incoming_stream = subs.incoming.into_stream();
     let mut outgoing_stream = subs.outgoing.into_stream();
-    let mut block_stream = subs.blocks.into_stream();
+    let mut block_stream = subs.blocks.map(Subscription::into_stream);
     loop {
         tokio::select! {
             _ = ct.cancelled() => return Ok(()),
@@ -172,7 +178,7 @@ async fn run_event_loop(
                 log::spawn_log(log, TransferDirection::Send, ctx.clone(), ev.clone(), ct.clone());
             }
 
-            header = block_stream.next() => {
+            header = next_block(&mut block_stream) => {
                 let Some(header) = header else {
                     return Err(EvmListenError::SubscriptionEnded);
                 };
@@ -193,5 +199,13 @@ async fn run_event_loop(
 pub(crate) async fn emit(ev: &EventTx, event: EvmEvent) {
     if ev.send(event).await.is_err() {
         tracing::warn!("发送 EVM 事件失败：接收端已关闭");
+    }
+}
+
+/// 原生币转账关闭时这个 future 永远 pending，对应的 select 分支不会触发。
+async fn next_block(stream: &mut Option<SubscriptionStream<Header>>) -> Option<Header> {
+    match stream {
+        Some(stream) => stream.next().await,
+        None => std::future::pending().await,
     }
 }
