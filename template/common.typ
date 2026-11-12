@@ -188,18 +188,21 @@
   [
     - 时间: #text(_datetime, weight: "bold")
     - 区块链: #text(_chain_name, weight: "bold")
-    #v(-4.5pt)
-    #grid(
-      columns: (auto, auto),
-      align: left,
-      gutter: 2pt,
-      [- 网络费:],
-      [
-        #align(horizon)[
-          #fit-text(value_str, weight: "bold", max-size: 8pt)
-        ]
-      ],
-    )
+    // 交易费未知时传空串，整行隐藏
+    #if _tx_fee != "" [
+      #v(-4.5pt)
+      #grid(
+        columns: (auto, auto),
+        align: left,
+        gutter: 2pt,
+        [- 网络费:],
+        [
+          #align(horizon)[
+            #fit-text(value_str, weight: "bold", max-size: 8pt)
+          ]
+        ],
+      )
+    ]
     #v(-4.5pt)
     #if _token_contract != "" {
       [
@@ -221,7 +224,8 @@
 }
 
 #let temp(x: "{{}}", def: "") = {
-  if x.contains("{{") and x.contains("}}") {
+  // 渲染后布尔值/数字会替换成裸字面量，只有字符串才需要检查占位符
+  if type(x) == str and x.contains("{{") and x.contains("}}") {
     def
   } else {
     x
