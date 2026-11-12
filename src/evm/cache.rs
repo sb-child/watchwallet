@@ -1,0 +1,77 @@
+use super::{
+    EvmProvider,
+    address::{AddressInfo, fetch_address_info},
+    event::{AccountInfo, Erc20TokenInfo, TxInfo},
+    tx::fetch_tx_info,
+};
+use alloy::primitives::{Address, B256};
+use moka::future::Cache;
+use std::{collections::HashMap, sync::Arc};
+
+/// 地址信息缓存上限。地址是低频数据，基本只会增长到配置里的地址数加涉及的合约数。
+const ADDR_CACHE_CAPACITY: u64 = 8_192;
+/// 交易信息缓存上限。交易只会被同一笔交易的几条日志访问，没有必要长期保留。
+const TX_CACHE_CAPACITY: u64 = 65_536;
+
+/// 监听过程中共享的查询上下文，缓存按链各一份。
+///
+/// 用 [`Cache::optionally_get_with`] 而不是 [`Cache::try_get_with`]：
+/// 查询失败统一返回 [`None`]，不写缓存，等下次事件再试；同一 key 的并发查询会被合并成一次 RPC。
+#[derive(Clone)]
+pub struct EvmCtx {
+    provider: EvmProvider,
+    /// 配置里的地址名字，启动后不再变化
+    names: Arc<HashMap<Address, Box<str>>>,
+    addr_info: Cache<Address, AddressInfo>,
+    tx_info: Cache<B256, TxInfo>,
+}
+
+impl EvmCtx {
+    pub fn new(
+        provider: EvmProvider,
+        names: impl IntoIterator<Item = (Address, Box<str>)>,
+    ) -> Self {
+        Self {
+            provider,
+            names: Arc::new(names.into_iter().collect()),
+            addr_info: Cache::builder().max_capacity(ADDR_CACHE_CAPACITY).build(),
+            tx_info: Cache::builder().max_capacity(TX_CACHE_CAPACITY).build(),
+        }
+    }
+
+    /// 查询地址信息，并带上配置里写的名字。
+    pub async fn account(&self, addr: Address) -> Option<AccountInfo> {
+        let info = self.lookup(addr).await?;
+        Some(AccountInfo {
+            addr,
+            name: self.names.get(&addr).cloned(),
+            is_contract: info.is_contract(),
+        })
+    }
+
+    /// 查询 ERC-20 代币信息。不是标准 ERC-20 时返回 [`None`]。
+    pub async fn erc20(&self, contract: Address) -> Option<Erc20TokenInfo> {
+        let AddressInfo::Erc20Contract(token) = self.lookup(contract).await? else {
+            return None;
+        };
+        Some(Erc20TokenInfo {
+            contract,
+            symbol: token.symbol,
+            name: token.name,
+            decimals: token.decimals,
+        })
+    }
+
+    /// 查询交易信息。查询失败时事件照发，模板使用默认值。
+    pub async fn tx(&self, txid: B256) -> Option<TxInfo> {
+        self.tx_info
+            .optionally_get_with(txid, fetch_tx_info(&self.provider, txid))
+            .await
+    }
+
+    async fn lookup(&self, addr: Address) -> Option<AddressInfo> {
+        self.addr_info
+            .optionally_get_with(addr, fetch_address_info(&self.provider, addr))
+            .await
+    }
+}
