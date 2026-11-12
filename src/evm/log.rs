@@ -127,7 +127,10 @@ async fn build_transfer(
     ctx: &EvmCtx,
 ) -> Option<TokenTransferEvent> {
     let (watched_addr, counterparty_addr) = sides(direction, parsed.topic1, parsed.topic2);
-    let token = ctx.erc20(parsed.token).await?;
+    let Some(token) = ctx.erc20(parsed.token).await else {
+        tracing::debug!(contract = %parsed.token, "跳过非 ERC-20 的 Transfer 日志");
+        return None;
+    };
     let tx_info = ctx.tx(parsed.tx_hash).await;
     Some(TokenTransferEvent {
         watched: ctx.account(watched_addr).await,
@@ -142,7 +145,10 @@ async fn build_transfer(
 
 async fn build_approval(parsed: ParsedLog, ctx: &EvmCtx) -> Option<TokenApprovalEvent> {
     // T1 owner, T2 spender
-    let token = ctx.erc20(parsed.token).await?;
+    let Some(token) = ctx.erc20(parsed.token).await else {
+        tracing::debug!(contract = %parsed.token, "跳过非 ERC-20 的 Approval 日志");
+        return None;
+    };
     let tx_info = ctx.tx(parsed.tx_hash).await;
     Some(TokenApprovalEvent {
         owner: ctx.account(parsed.topic1).await,
@@ -157,5 +163,73 @@ async fn build_approval(parsed: ParsedLog, ctx: &EvmCtx) -> Option<TokenApproval
 async fn emit(ev: &EventTx, event: EvmEvent) {
     if ev.send(event).await.is_err() {
         tracing::warn!("发送 EVM 事件失败：接收端已关闭");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::{Bytes, Log as RawLog, U256, address, b256};
+
+    const TOKEN: Address = address!("0x55d398326f99059ff775485246999027b3197955");
+    const FROM: Address = address!("0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3");
+    const TO: Address = address!("0x233b7f746aBAc0797E8dBC344b638F1C4225F264");
+    const TX: B256 = b256!("0xce656824ee4da940ca08901088940d52b4fe1b5a7b4b21007daaec4f1c315529");
+
+    fn log_with(topics: Vec<B256>, data: &[u8]) -> Log {
+        Log {
+            inner: RawLog::new(TOKEN, topics, Bytes::copy_from_slice(data)).unwrap(),
+            block_hash: None,
+            block_number: None,
+            block_timestamp: None,
+            transaction_hash: Some(TX),
+            transaction_index: None,
+            log_index: None,
+            removed: false,
+        }
+    }
+
+    fn transfer_log() -> Log {
+        let data = U256::from(1234u64).to_be_bytes::<32>();
+        log_with(
+            vec![*TRANSFER_EVENT_SIGNATURE, FROM.into_word(), TO.into_word()],
+            &data,
+        )
+    }
+
+    #[test]
+    fn parse_erc20_transfer() {
+        let parsed = parse_log(&transfer_log()).unwrap();
+        assert_eq!(parsed.token, TOKEN);
+        assert_eq!(parsed.topic1, FROM);
+        assert_eq!(parsed.topic2, TO);
+        assert_eq!(parsed.amount, U256::from(1234u64));
+        assert_eq!(parsed.tx_hash, TX);
+    }
+
+    #[test]
+    fn reject_erc721_and_short_data() {
+        let topics_4 = vec![
+            *TRANSFER_EVENT_SIGNATURE,
+            FROM.into_word(),
+            TO.into_word(),
+            B256::ZERO,
+        ];
+        assert!(parse_log(&log_with(topics_4, &[])).is_none());
+        let topics_3 = vec![*TRANSFER_EVENT_SIGNATURE, FROM.into_word(), TO.into_word()];
+        assert!(parse_log(&log_with(topics_3, &[0u8; 31])).is_none());
+    }
+
+    #[test]
+    fn reject_removed_log() {
+        let mut log = transfer_log();
+        log.removed = true;
+        assert!(parse_log(&log).is_none());
+    }
+
+    #[test]
+    fn sides_follow_direction() {
+        assert_eq!(sides(TransferDirection::Send, FROM, TO), (FROM, TO));
+        assert_eq!(sides(TransferDirection::Recv, FROM, TO), (TO, FROM));
     }
 }
