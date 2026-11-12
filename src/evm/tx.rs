@@ -18,9 +18,7 @@ pub async fn fetch_tx_info(p: &EvmProvider, txid: B256) -> Option<TxInfo> {
             return None;
         }
     };
-    let Some(block_hash) = receipt.block_hash else {
-        return None;
-    };
+    let block_hash = receipt.block_hash?;
     let block = match p.get_block_by_hash(block_hash).await {
         Ok(Some(block)) => block,
         Ok(None) => return None,

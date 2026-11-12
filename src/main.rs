@@ -71,7 +71,7 @@ fn main() -> std::process::ExitCode {
                 }
             }
         };
-        return app_result;
+        app_result
     });
     runtime.shutdown_timeout(Duration::from_secs(3));
     exit_code(result)

@@ -20,10 +20,7 @@ pub enum AddressInfo {
 
 impl AddressInfo {
     pub fn is_contract(&self) -> bool {
-        match self {
-            AddressInfo::EOA => false,
-            _ => true,
-        }
+        !matches!(self, AddressInfo::EOA)
     }
 }
 

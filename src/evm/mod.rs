@@ -34,6 +34,8 @@ pub enum EvmListenError {
     },
     #[snafu(display("No Address Provided."))]
     EmptyAddress,
+    #[snafu(display("日志订阅意外结束"))]
+    SubscriptionEnded,
 }
 
 type EvmProvider = alloy::providers::fillers::FillProvider<
@@ -80,8 +82,7 @@ pub async fn listen(
         provider,
         cfg.address.iter().map(|x| (x.addr, x.name.clone())),
     );
-    run_event_loop(subs, ctx, ev, ct).await;
-    Ok(())
+    run_event_loop(subs, ctx, ev, ct).await
 }
 
 async fn connect_provider(ws_url: &Url) -> Result<EvmProvider, EvmListenError> {
@@ -100,7 +101,7 @@ fn build_filters(cfg: &EvmConfig) -> Result<Filters, EvmListenError> {
             .iter()
             .map(|x| B256::from_slice(x.addr.into_word().as_slice())),
     );
-    ensure!(listen_addrs.len() > 0, EmptyAddressSnafu);
+    ensure!(!listen_addrs.is_empty(), EmptyAddressSnafu);
     let transfer_or_approval = Topic::from_iter([
         *log::TRANSFER_EVENT_SIGNATURE,
         *log::APPROVAL_EVENT_SIGNATURE,
@@ -129,19 +130,31 @@ async fn subscribe(
     Ok(Subscriptions { incoming, outgoing })
 }
 
-async fn run_event_loop(subs: Subscriptions, ctx: EvmCtx, ev: EventTx, ct: CancellationToken) {
+async fn run_event_loop(
+    subs: Subscriptions,
+    ctx: EvmCtx,
+    ev: EventTx,
+    ct: CancellationToken,
+) -> Result<(), EvmListenError> {
     let mut incoming_stream = subs.incoming.into_stream();
     let mut outgoing_stream = subs.outgoing.into_stream();
     loop {
         tokio::select! {
-            _ = ct.cancelled() => break,
+            _ = ct.cancelled() => return Ok(()),
 
-            Some(log) = incoming_stream.next() => {
+            // 订阅流结束说明 WebSocket 已经断开，交给上层重启
+            incoming = incoming_stream.next() => {
+                let Some(log) = incoming else {
+                    return Err(EvmListenError::SubscriptionEnded);
+                };
                 // 收到代币 (to) / 被授权代币 (spender)
                 log::spawn_log(log, TransferDirection::Recv, ctx.clone(), ev.clone(), ct.clone());
             }
 
-            Some(log) = outgoing_stream.next() => {
+            outgoing = outgoing_stream.next() => {
+                let Some(log) = outgoing else {
+                    return Err(EvmListenError::SubscriptionEnded);
+                };
                 // 花出代币 (from) / 授权代币给别人 (owner)
                 log::spawn_log(log, TransferDirection::Send, ctx.clone(), ev.clone(), ct.clone());
             }
