@@ -3,6 +3,7 @@ use super::{
     address::{AddressInfo, fetch_address_info},
     event::{AccountInfo, Erc20TokenInfo, TxInfo},
     tx::fetch_tx_info,
+    tx::fetch_tx_info_at,
 };
 use alloy::primitives::{Address, B256};
 use moka::future::Cache;
@@ -70,6 +71,18 @@ impl EvmCtx {
         self.tx_info
             .optionally_get_with(txid, fetch_tx_info(&self.provider, txid))
             .await
+    }
+
+    /// 查询交易信息，出块时间已知时省掉一次区块查询。
+    pub async fn tx_at(&self, txid: B256, timestamp: u64) -> Option<TxInfo> {
+        self.tx_info
+            .optionally_get_with(txid, fetch_tx_info_at(&self.provider, txid, timestamp))
+            .await
+    }
+
+    /// 该地址是否在配置的监听列表里。
+    pub fn is_watched(&self, addr: Address) -> bool {
+        self.names.contains_key(&addr)
     }
 
     async fn lookup(&self, addr: Address) -> Option<AddressInfo> {

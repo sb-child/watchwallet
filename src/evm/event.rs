@@ -9,6 +9,18 @@ pub enum TransferDirection {
     Recv,
 }
 
+/// 按方向决定哪一边是被监听地址，返回 `(watched, counterparty)`。
+pub(crate) fn sides(
+    direction: TransferDirection,
+    from: Address,
+    to: Address,
+) -> (Address, Address) {
+    match direction {
+        TransferDirection::Send => (from, to),
+        TransferDirection::Recv => (to, from),
+    }
+}
+
 /// 地址及其在配置里的名字。
 #[derive(Debug, Clone)]
 pub struct AccountInfo {
@@ -34,6 +46,39 @@ pub struct TxInfo {
     pub fee: U256,
     /// 出块时间，Unix 秒
     pub timestamp: u64,
+    /// 交易是否执行成功。失败的交易不会真正转账，但链上仍然记录了 value。
+    pub success: bool,
+}
+
+/// 以被监听地址为参照的转账事件：`watched` 始终是被监听的一方。
+pub trait TransferFlow {
+    fn watched(&self) -> &AccountInfo;
+    fn counterparty(&self) -> &AccountInfo;
+    fn direction(&self) -> TransferDirection;
+
+    /// 链上失去币的一方
+    fn sender(&self) -> &AccountInfo {
+        match self.direction() {
+            TransferDirection::Send => self.watched(),
+            TransferDirection::Recv => self.counterparty(),
+        }
+    }
+
+    /// 链上获得币的一方
+    fn recipient(&self) -> &AccountInfo {
+        match self.direction() {
+            TransferDirection::Send => self.counterparty(),
+            TransferDirection::Recv => self.watched(),
+        }
+    }
+
+    fn is_send(&self) -> bool {
+        self.direction() == TransferDirection::Send
+    }
+
+    fn is_recv(&self) -> bool {
+        self.direction() == TransferDirection::Recv
+    }
 }
 
 /// ERC-20 Transfer 事件。
@@ -56,29 +101,47 @@ pub struct TokenTransferEvent {
     pub tx_info: Option<TxInfo>,
 }
 
-impl TokenTransferEvent {
-    /// 链上失去代币的一方
-    pub fn sender(&self) -> &AccountInfo {
-        match self.direction {
-            TransferDirection::Send => &self.watched,
-            TransferDirection::Recv => &self.counterparty,
-        }
+impl TransferFlow for TokenTransferEvent {
+    fn watched(&self) -> &AccountInfo {
+        &self.watched
     }
 
-    /// 链上获得代币的一方
-    pub fn recipient(&self) -> &AccountInfo {
-        match self.direction {
-            TransferDirection::Send => &self.counterparty,
-            TransferDirection::Recv => &self.watched,
-        }
+    fn counterparty(&self) -> &AccountInfo {
+        &self.counterparty
     }
 
-    pub fn is_send(&self) -> bool {
-        self.direction == TransferDirection::Send
+    fn direction(&self) -> TransferDirection {
+        self.direction
+    }
+}
+
+/// 原生币转账事件。
+#[derive(Debug, Clone)]
+pub struct NativeTransferEvent {
+    /// 本次通知对应的被监听地址
+    pub watched: AccountInfo,
+    /// 交易对手方
+    pub counterparty: AccountInfo,
+    /// 方向
+    pub direction: TransferDirection,
+    /// 链上原始数量
+    pub amount: U256,
+    pub tx_hash: B256,
+    /// 查询失败时为 None，模板使用默认值
+    pub tx_info: Option<TxInfo>,
+}
+
+impl TransferFlow for NativeTransferEvent {
+    fn watched(&self) -> &AccountInfo {
+        &self.watched
     }
 
-    pub fn is_recv(&self) -> bool {
-        self.direction == TransferDirection::Recv
+    fn counterparty(&self) -> &AccountInfo {
+        &self.counterparty
+    }
+
+    fn direction(&self) -> TransferDirection {
+        self.direction
     }
 }
 
@@ -102,4 +165,19 @@ pub struct TokenApprovalEvent {
 pub enum EvmEvent {
     TokenTransfer(Box<TokenTransferEvent>),
     TokenApproval(Box<TokenApprovalEvent>),
+    NativeTransfer(Box<NativeTransferEvent>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::address;
+
+    #[test]
+    fn sides_follow_direction() {
+        let from = address!("0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3");
+        let to = address!("0x233b7f746aBAc0797E8dBC344b638F1C4225F264");
+        assert_eq!(sides(TransferDirection::Send, from, to), (from, to));
+        assert_eq!(sides(TransferDirection::Recv, from, to), (to, from));
+    }
 }

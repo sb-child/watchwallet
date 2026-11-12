@@ -1,6 +1,6 @@
 use super::{
-    EventTx, EvmCtx,
-    event::{EvmEvent, TokenApprovalEvent, TokenTransferEvent, TransferDirection},
+    EventTx, EvmCtx, emit,
+    event::{EvmEvent, TokenApprovalEvent, TokenTransferEvent, TransferDirection, sides},
 };
 use alloy::{
     primitives::{Address, B256, Keccak256, U256},
@@ -60,14 +60,6 @@ fn parse_log(log: &Log) -> Option<ParsedLog> {
         amount: U256::from_be_slice(data.get(..32)?),
         tx_hash: log.transaction_hash?,
     })
-}
-
-/// 按方向决定哪一边是被监听地址，返回 `(watched, counterparty)`。
-fn sides(direction: TransferDirection, from: Address, to: Address) -> (Address, Address) {
-    match direction {
-        TransferDirection::Send => (from, to),
-        TransferDirection::Recv => (to, from),
-    }
 }
 
 /// 处理一条订阅到的日志。
@@ -160,12 +152,6 @@ async fn build_approval(parsed: ParsedLog, ctx: &EvmCtx) -> Option<TokenApproval
     })
 }
 
-async fn emit(ev: &EventTx, event: EvmEvent) {
-    if ev.send(event).await.is_err() {
-        tracing::warn!("发送 EVM 事件失败：接收端已关闭");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,11 +211,5 @@ mod tests {
         let mut log = transfer_log();
         log.removed = true;
         assert!(parse_log(&log).is_none());
-    }
-
-    #[test]
-    fn sides_follow_direction() {
-        assert_eq!(sides(TransferDirection::Send, FROM, TO), (FROM, TO));
-        assert_eq!(sides(TransferDirection::Recv, FROM, TO), (TO, FROM));
     }
 }
