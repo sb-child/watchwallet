@@ -1,0 +1,105 @@
+use alloy::primitives::{Address, B256, U256};
+
+/// 转账方向，始终以被监听地址为参照。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferDirection {
+    /// 被监听地址失去代币：watched -> counterparty
+    Send,
+    /// 被监听地址收到代币：counterparty -> watched
+    Recv,
+}
+
+/// 地址及其在配置里的名字。
+#[derive(Debug, Clone)]
+pub struct AccountInfo {
+    pub addr: Address,
+    /// 配置里为该地址写的名字
+    pub name: Option<Box<str>>,
+    pub is_contract: bool,
+}
+
+/// ERC-20 代币信息。
+#[derive(Debug, Clone)]
+pub struct Erc20TokenInfo {
+    pub contract: Address,
+    pub symbol: Option<Box<str>>,
+    pub name: Option<Box<str>>,
+    pub decimals: u8,
+}
+
+/// 交易手续费与时间。
+#[derive(Debug, Clone)]
+pub struct TxInfo {
+    /// 手续费，单位是链的原生币最小单位
+    pub fee: U256,
+    /// 出块时间，Unix 秒
+    pub timestamp: u64,
+}
+
+/// ERC-20 Transfer 事件。
+///
+/// 同时表示收款和转账：`watched` 始终是被监听的一方，`direction` 说明币的流向。
+#[derive(Debug, Clone)]
+pub struct TokenTransferEvent {
+    /// 本次通知对应的被监听地址
+    pub watched: AccountInfo,
+    /// 交易对手方
+    pub counterparty: AccountInfo,
+    /// 方向
+    pub direction: TransferDirection,
+    /// 交易代币
+    pub token: Erc20TokenInfo,
+    /// 链上原始数量
+    pub amount: U256,
+    pub tx_hash: B256,
+    /// 查询失败时为 None，模板使用默认值
+    pub tx_info: Option<TxInfo>,
+}
+
+impl TokenTransferEvent {
+    /// 链上失去代币的一方
+    pub fn sender(&self) -> &AccountInfo {
+        match self.direction {
+            TransferDirection::Send => &self.watched,
+            TransferDirection::Recv => &self.counterparty,
+        }
+    }
+
+    /// 链上获得代币的一方
+    pub fn recipient(&self) -> &AccountInfo {
+        match self.direction {
+            TransferDirection::Send => &self.counterparty,
+            TransferDirection::Recv => &self.watched,
+        }
+    }
+
+    pub fn is_send(&self) -> bool {
+        self.direction == TransferDirection::Send
+    }
+
+    pub fn is_recv(&self) -> bool {
+        self.direction == TransferDirection::Recv
+    }
+}
+
+/// ERC-20 Approval 事件。
+#[derive(Debug, Clone)]
+pub struct TokenApprovalEvent {
+    /// 持有代币、做出授权的一方
+    pub owner: AccountInfo,
+    /// 被授权的账户
+    pub spender: AccountInfo,
+    /// 授权代币
+    pub token: Erc20TokenInfo,
+    /// 授权数量。可以是无限。
+    pub amount: U256,
+    pub tx_hash: B256,
+    /// 查询失败时为 None，模板使用默认值
+    pub tx_info: Option<TxInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub enum EvmEvent {
+    TokenTransfer(Box<TokenTransferEvent>),
+    TokenApproval(Box<TokenApprovalEvent>),
+}

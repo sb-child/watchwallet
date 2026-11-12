@@ -1,3 +1,7 @@
+pub mod event;
+
+pub use event::{EvmEvent, TransferDirection};
+
 use crate::config::EvmConfig;
 use alloy::{
     primitives::{Address, B256, Keccak256, U256},
@@ -214,63 +218,6 @@ async fn fetch_address_info(p: &EvmProvider, addr: Address) -> Result<AddressInf
         name,
         decimals,
     }))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransferDirection {
-    /// 被监听地址失去代币：watched -> counterparty
-    Send,
-    /// 被监听地址收到代币：counterparty -> watched
-    Recv,
-}
-
-#[derive(Debug, Clone)]
-pub struct AccountInfo {
-    addr: Address,
-    name: Option<Box<str>>,
-    is_contract: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct Erc20TokenInfo {
-    contract: Address,
-    symbol: Option<Box<str>>,
-    name: Option<Box<str>>,
-    decimals: u8,
-}
-
-#[derive(Debug, Clone)]
-pub struct TokenTransferEvent {
-    /// 本次通知对应的被监听地址
-    watched: AccountInfo,
-    /// 交易对手方
-    counterparty: AccountInfo,
-    /// 方向
-    direction: TransferDirection,
-    /// 交易代币
-    token: Erc20TokenInfo,
-    /// 链上原始数量
-    amount: U256,
-    tx_hash: B256,
-}
-
-#[derive(Debug, Clone)]
-pub struct TokenApprovalEvent {
-    /// 本次通知对应的被监听地址
-    owner: AccountInfo,
-    /// 被授权的账户
-    spender: AccountInfo,
-    /// 授权代币
-    token: Erc20TokenInfo,
-    /// 授权数量。可以是无限。
-    amount: U256,
-    tx_hash: B256,
-}
-
-#[derive(Debug, Clone)]
-pub enum EvmEvent {
-    TokenTransfer(Box<TokenTransferEvent>),
-    TokenApproval(Box<TokenApprovalEvent>),
 }
 
 type EventRx = crossfire::MAsyncRx<mpmc::List<EvmEvent>>;
