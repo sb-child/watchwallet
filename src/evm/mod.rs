@@ -1,4 +1,7 @@
+pub mod address;
 pub mod event;
+
+use address::{AddressInfo, fetch_address_info};
 
 pub use event::{EvmEvent, TransferDirection};
 
@@ -7,7 +10,6 @@ use alloy::{
     primitives::{Address, B256, Keccak256, U256},
     providers::{Provider as _, ProviderBuilder, WsConnect},
     rpc::types::{Filter, Log, Topic},
-    sol,
     transports::{RpcError, TransportError, TransportErrorKind},
 };
 use crossfire::{flavor, mpmc, oneshot};
@@ -18,15 +20,6 @@ use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 use whirlwind::ShardMap;
-
-sol! {
-    #[sol(rpc)]
-    interface IERC20Metadata {
-        function name() external view returns (string);
-        function symbol() external view returns (string);
-        function decimals() external view returns (uint8);
-    }
-}
 
 /// ERC-20 / ERC-721 Transfer
 static TRANSFER_EVENT_SIGNATURE: LazyLock<B256> = LazyLock::new(|| {
@@ -90,51 +83,6 @@ type EvmProvider = alloy::providers::fillers::FillProvider<
     alloy::providers::RootProvider,
 >;
 
-#[derive(Debug, Clone)]
-enum AddressInfo {
-    EOA,
-    Erc20Contract(Erc20Contract),
-    OtherContract,
-}
-
-impl AddressInfo {
-    pub fn is_contract(&self) -> bool {
-        match self {
-            AddressInfo::EOA => false,
-            _ => true,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Erc20Contract {
-    symbol: Option<Box<str>>,
-    name: Option<Box<str>>,
-    decimals: u8,
-}
-
-impl std::fmt::Display for AddressInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EOA => f.write_str("EOA"),
-            Self::OtherContract => f.write_str("Contract"),
-            Self::Erc20Contract(token) => {
-                let symbol = token.symbol.as_deref().unwrap_or("Unknown");
-                match token.name.as_deref() {
-                    Some(name) if !name.is_empty() => {
-                        write!(
-                            f,
-                            "Contract: ERC-20 {symbol} ({name}) decimals={}",
-                            token.decimals
-                        )
-                    }
-                    _ => write!(f, "Contract: ERC-20 {symbol} decimals={}", token.decimals),
-                }
-            }
-        }
-    }
-}
-
 async fn fetcher(p: EvmProvider, req_rx: FetcherRx, addr_info: AddrInfoMap, ct: CancellationToken) {
     loop {
         // 从 req_rx 拉取地址
@@ -154,15 +102,12 @@ async fn fetcher(p: EvmProvider, req_rx: FetcherRx, addr_info: AddrInfoMap, ct: 
         // 如果没有，通过 provider 拉取信息
         let info = tokio::select! {
             _ = ct.cancelled() => return,
-            info = fetch_address_info(&p, addr) => match info {
-                Ok(info) => info,
-                // 如果 provider 出错，打印 tracing error，发回 ()，不要动 addr_info
-                Err(err) => {
-                    tracing::error!(address = %addr, "查询地址信息失败: {err}");
-                    tx.send(());
-                    continue;
-                }
-            },
+            info = fetch_address_info(&p, addr) => info,
+        };
+        // provider 出错时已经打印日志，不动 addr_info，等下次事件再试
+        let Some(info) = info else {
+            tx.send(());
+            continue;
         };
         // 写到 addr_info，然后再回 ()
         tracing::info!(address = %addr, "查询到地址信息: {info}");
@@ -178,46 +123,6 @@ async fn query_fetcher(addr: Address, ftx: &FetcherTx, ai: &AddrInfoMap) -> Opti
     // fetcher 处理完（无论成功与否）都会发回信号，之后从缓存读取结果。
     let _ = rx.await;
     ai.get(&addr).await.map(|x| x.value().clone())
-}
-
-/// 通过 provider 拉取地址信息。
-///
-/// - 节点正常响应但调用失败（例如合约没有对应方法而回滚）只说明该合约不是标准 ERC-20，归类为 [`AddressInfo::OtherContract`]
-/// - 没有收到节点响应的传输错误则视为 provider 出错，返回错误且不写缓存。
-async fn fetch_address_info(p: &EvmProvider, addr: Address) -> Result<AddressInfo, TransportError> {
-    let code = p.get_code_at(addr).await?;
-    if code.is_empty() {
-        return Ok(AddressInfo::EOA);
-    }
-
-    let token = IERC20Metadata::new(addr, p.clone());
-    let decimals = match token.decimals().call().await {
-        Ok(decimals) => decimals,
-        Err(alloy::contract::Error::TransportError(err)) if err.as_error_resp().is_none() => {
-            return Err(err);
-        }
-        Err(_) => return Ok(AddressInfo::OtherContract),
-    };
-    let symbol = match token.symbol().call().await {
-        Ok(symbol) => Some(symbol.into_boxed_str()),
-        Err(alloy::contract::Error::TransportError(err)) if err.as_error_resp().is_none() => {
-            return Err(err);
-        }
-        Err(_) => None,
-    };
-    let name = match token.name().call().await {
-        Ok(name) => Some(name.into_boxed_str()),
-        Err(alloy::contract::Error::TransportError(err)) if err.as_error_resp().is_none() => {
-            return Err(err);
-        }
-        Err(_) => None,
-    };
-
-    Ok(AddressInfo::Erc20Contract(Erc20Contract {
-        symbol,
-        name,
-        decimals,
-    }))
 }
 
 type EventRx = crossfire::MAsyncRx<mpmc::List<EvmEvent>>;
