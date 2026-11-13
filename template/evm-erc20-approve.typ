@@ -27,9 +27,19 @@
 #common.display-value(val: _transfer_value, sym: _coin_symbol, k: "", name: _coin_name)
 #grid(
   gutter: 2pt,
-  [#common.account(addr: _owner_addr, contract: _owner_is_contract, name: _owner_name)],
+  [#common.account(
+    addr: _owner_addr,
+    contract: _owner_is_contract,
+    name: _owner_name,
+    note: "授权方(owner)",
+  )],
   [#common.flow-down(label: "授权给")],
-  [#common.account(addr: _spender_addr, contract: _spender_is_contract, name: _spender_name)],
+  [#common.account(
+    addr: _spender_addr,
+    contract: _spender_is_contract,
+    name: _spender_name,
+    note: "被授权方(spender)",
+  )],
 )
 #v(-5pt)
 #common.details(

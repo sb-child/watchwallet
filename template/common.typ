@@ -74,13 +74,24 @@
   )
 }
 
-#let account(name: "", addr: "", contract: false) = {
+#let account(name: "", addr: "", contract: false, note: "") = {
   pad(left: 0.6pt, top: 0pt)[
     #if name == "" {
       account_only_addr(addr: addr, contract: contract)
     } else {
       account_with_name(name: name, addr: addr, contract: contract)
     }
+    #if note != "" {
+      place(
+        top + right,
+        dy: -4pt,
+        dx: 1pt,
+        block(fill: rgb("#ffffffff"), inset: 1pt)[
+          #text(note, weight: "bold", size: 4.8pt)
+        ],
+      )
+    }
+
   ]
 }
 

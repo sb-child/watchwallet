@@ -24,9 +24,19 @@
 #common.display-value(val: _transfer_value, sym: _coin_symbol, k: "dec", name: _coin_name)
 #grid(
   gutter: 2pt,
-  [#common.account(addr: _sender_addr, contract: _sender_is_contract, name: _sender_name)],
+  [#common.account(
+    addr: _sender_addr,
+    contract: _sender_is_contract,
+    name: _sender_name,
+    note: "转出方(sender)",
+  )],
   [#common.flow-down(label: "转账给")],
-  [#common.account(addr: _recp_addr, contract: _recp_is_contract, name: _recp_name)],
+  [#common.account(
+    addr: _recp_addr,
+    contract: _recp_is_contract,
+    name: _recp_name,
+    note: "接收方(recp)",
+  )],
 )
 #v(-5pt)
 #common.details(
