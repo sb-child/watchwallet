@@ -21,7 +21,8 @@
 #let _spender_is_contract = common.temp(x: "{{spender_is_contract}}", def: true)
 // ---
 
-#common.title("approve")
+// 授权数量为 0 表示取消授权。
+#common.title("approve", revoked: _transfer_value == "0")
 // #common.display-value(val: "inf", sym: "USDT", k: "", name: "Tether USD")
 #common.display-value(val: _transfer_value, sym: _coin_symbol, k: "", name: _coin_name)
 #grid(

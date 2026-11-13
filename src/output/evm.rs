@@ -40,7 +40,8 @@ fn template_name(event: &EvmEvent) -> &'static str {
     match event {
         EvmEvent::TokenTransfer(event) if event.is_send() => "evm-erc20-send",
         EvmEvent::TokenTransfer(_) => "evm-erc20-recv",
-        EvmEvent::TokenApproval(_) => "evm-erc20-approve",
+        EvmEvent::TokenApproval(event) if event.watched_is_owner() => "evm-erc20-approve",
+        EvmEvent::TokenApproval(_) => "evm-erc20-approve-recv",
         EvmEvent::NativeTransfer(event) if event.is_send() => "evm-native-send",
         EvmEvent::NativeTransfer(_) => "evm-native-recv",
     }
@@ -439,22 +440,51 @@ mod tests {
         assert!(main.contains(r#"x: "", def: """#));
     }
 
-    #[test]
-    fn approval_uses_inf_for_max_amount() {
-        let event = EvmEvent::TokenApproval(Box::new(TokenApprovalEvent {
+    fn approval(direction: TransferDirection, amount: U256) -> EvmEvent {
+        EvmEvent::TokenApproval(Box::new(TokenApprovalEvent {
             owner: account(RECP, Some("test wallet"), false),
             spender: account(SENDER, None, true),
+            direction,
             token: token(),
-            amount: U256::MAX,
+            amount,
             tx_hash: TX,
             tx_info: Some(tx_info()),
-        }));
-        let out = render(&event, &cfg()).unwrap();
+        }))
+    }
+
+    #[test]
+    fn approval_uses_inf_for_max_amount() {
+        let out = render(&approval(TransferDirection::Send, U256::MAX), &cfg()).unwrap();
         assert_eq!(out.template, "evm-erc20-approve");
 
         let main = main_typ(&out.tar);
         assert!(main.contains(r#"x: "inf""#));
         assert!(main.contains(r#"x: true"#));
+    }
+
+    #[test]
+    fn received_approval_uses_recv_template() {
+        let out = render(
+            &approval(TransferDirection::Recv, U256::from(1_000_000u64)),
+            &cfg(),
+        )
+        .unwrap();
+        assert_eq!(out.template, "evm-erc20-approve-recv");
+
+        let main = main_typ(&out.tar);
+        // 被授权的一方排在前面，箭头指向上方
+        assert!(main.contains("授权来自"));
+        assert!(main.contains(r#"x: "1""#));
+    }
+
+    #[test]
+    fn zero_approval_is_marked_as_revoke() {
+        let out = render(&approval(TransferDirection::Send, U256::ZERO), &cfg()).unwrap();
+        assert_eq!(out.template, "evm-erc20-approve");
+
+        let main = main_typ(&out.tar);
+        // 是否取消授权由模板根据数量判断
+        assert!(main.contains(r#"revoked: _transfer_value == "0""#));
     }
 
     #[test]
@@ -475,14 +505,10 @@ mod tests {
         let events = [
             token_transfer(TransferDirection::Send, Some(tx_info())),
             token_transfer(TransferDirection::Recv, None),
-            EvmEvent::TokenApproval(Box::new(TokenApprovalEvent {
-                owner: account(RECP, Some("test wallet"), false),
-                spender: account(SENDER, None, true),
-                token: token(),
-                amount: U256::MAX,
-                tx_hash: TX,
-                tx_info: Some(tx_info()),
-            })),
+            approval(TransferDirection::Send, U256::MAX),
+            approval(TransferDirection::Recv, U256::from(1_000_000u64)),
+            approval(TransferDirection::Send, U256::ZERO),
+            approval(TransferDirection::Recv, U256::ZERO),
             native_transfer(TransferDirection::Send, Some(tx_info())),
             native_transfer(TransferDirection::Recv, None),
         ];

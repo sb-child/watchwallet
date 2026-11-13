@@ -71,7 +71,7 @@ pub async fn on_log(log: Log, direction: TransferDirection, ctx: &EvmCtx, ev: &E
     if topic0 == *TRANSFER_EVENT_SIGNATURE {
         on_transfer(log, direction, ctx, ev).await;
     } else if topic0 == *APPROVAL_EVENT_SIGNATURE {
-        on_approval(log, ctx, ev).await;
+        on_approval(log, direction, ctx, ev).await;
     }
 }
 
@@ -103,11 +103,11 @@ async fn on_transfer(log: Log, direction: TransferDirection, ctx: &EvmCtx, ev: &
     emit(ev, EvmEvent::TokenTransfer(Box::new(event))).await;
 }
 
-async fn on_approval(log: Log, ctx: &EvmCtx, ev: &EventTx) {
+async fn on_approval(log: Log, direction: TransferDirection, ctx: &EvmCtx, ev: &EventTx) {
     let Some(parsed) = parse_log(&log) else {
         return;
     };
-    let Some(event) = build_approval(parsed, ctx).await else {
+    let Some(event) = build_approval(parsed, direction, ctx).await else {
         return;
     };
     emit(ev, EvmEvent::TokenApproval(Box::new(event))).await;
@@ -135,7 +135,11 @@ async fn build_transfer(
     })
 }
 
-async fn build_approval(parsed: ParsedLog, ctx: &EvmCtx) -> Option<TokenApprovalEvent> {
+async fn build_approval(
+    parsed: ParsedLog,
+    direction: TransferDirection,
+    ctx: &EvmCtx,
+) -> Option<TokenApprovalEvent> {
     // T1 owner, T2 spender
     let Some(token) = ctx.erc20(parsed.token).await else {
         tracing::debug!(contract = %parsed.token, "跳过非 ERC-20 的 Approval 日志");
@@ -145,6 +149,7 @@ async fn build_approval(parsed: ParsedLog, ctx: &EvmCtx) -> Option<TokenApproval
     Some(TokenApprovalEvent {
         owner: ctx.account(parsed.topic1).await,
         spender: ctx.account(parsed.topic2).await,
+        direction,
         token,
         amount: parsed.amount,
         tx_hash: parsed.tx_hash,

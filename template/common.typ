@@ -132,12 +132,18 @@
   })
 }
 
-#let title(t) = {
+#let title(t, revoked: false) = {
   let _t(im, t: "") = {
     [= #box(image(im, width: 14pt), baseline: 3pt) #text(t)]
   }
-  if t == "approve" {
+  if t == "approve" and revoked {
+    _t("feather.svg", t: "取消授权")
+  } else if t == "approve" {
     _t("feather.svg", t: "授权代币")
+  } else if t == "approve-recv" and revoked {
+    _t("feather.svg", t: "授权被取消")
+  } else if t == "approve-recv" {
+    _t("feather.svg", t: "被授权代币")
   } else if t == "erc20-recv" {
     _t("hand-coins.svg", t: "收到代币")
   } else if t == "erc20-send" {

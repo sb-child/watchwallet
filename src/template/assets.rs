@@ -20,6 +20,10 @@ pub(crate) const TEMPLATES: &[(&str, &str)] = &[
         include_str!("../../template/evm-erc20-approve.typ"),
     ),
     (
+        "evm-erc20-approve-recv",
+        include_str!("../../template/evm-erc20-approve-recv.typ"),
+    ),
+    (
         "evm-native-recv",
         include_str!("../../template/evm-native-recv.typ"),
     ),

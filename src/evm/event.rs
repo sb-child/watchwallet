@@ -1,11 +1,11 @@
 use alloy::primitives::{Address, B256, U256};
 
-/// 转账方向，始终以被监听地址为参照。
+/// 方向，始终以被监听地址为参照。转账和授权共用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferDirection {
-    /// 被监听地址失去代币：watched -> counterparty
+    /// 被监听地址失去代币，或把代币授权给别人：watched -> counterparty
     Send,
-    /// 被监听地址收到代币：counterparty -> watched
+    /// 被监听地址收到代币，或被别人授权：counterparty -> watched
     Recv,
 }
 
@@ -152,6 +152,8 @@ pub struct TokenApprovalEvent {
     pub owner: AccountInfo,
     /// 被授权的账户
     pub spender: AccountInfo,
+    /// 方向：`Send` 表示被监听地址是 owner，`Recv` 表示是 spender
+    pub direction: TransferDirection,
     /// 授权代币
     pub token: Erc20TokenInfo,
     /// 授权数量。可以是无限。
@@ -159,6 +161,13 @@ pub struct TokenApprovalEvent {
     pub tx_hash: B256,
     /// 查询失败时为 None，模板使用默认值
     pub tx_info: Option<TxInfo>,
+}
+
+impl TokenApprovalEvent {
+    /// 被监听地址是否是做出授权的一方。
+    pub fn watched_is_owner(&self) -> bool {
+        self.direction == TransferDirection::Send
+    }
 }
 
 #[derive(Debug, Clone)]
