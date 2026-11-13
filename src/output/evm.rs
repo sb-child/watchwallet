@@ -473,6 +473,7 @@ mod tests {
 
         let main = main_typ(&out.tar);
         // 被授权的一方排在前面，箭头指向上方
+        assert!(main.contains(r#"common.title("approve-recv""#));
         assert!(main.contains("授权来自"));
         assert!(main.contains(r#"x: "1""#));
     }

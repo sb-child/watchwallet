@@ -12,13 +12,13 @@
 #let _tx_id = common.temp(x: "{{tx_id}}", def: "0xce656824ee4da940ca08901088940d52b4fe1b5a7b4b21007daaec4f1c315529")
 #let _token_contract = common.temp(x: "{{token_contract}}", def: "0x55d398326f99059ff775485246999027b3197955")
 // 持有币的一方
-#let _owner_addr = common.temp(x: "{{owner_addr}}", def: "0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3")
-#let _owner_name = common.temp(x: "{{owner_name}}", def: "sbchild钱包1")
-#let _owner_is_contract = common.temp(x: "{{owner_is_contract}}", def: false)
+#let _owner_addr = common.temp(x: "{{owner_addr}}", def: "0x233b7f746aBAc0797E8dBC344b638F1C4225F264")
+#let _owner_name = common.temp(x: "{{owner_name}}", def: "")
+#let _owner_is_contract = common.temp(x: "{{owner_is_contract}}", def: true)
 // 被授权的一方
-#let _spender_addr = common.temp(x: "{{spender_addr}}", def: "0x233b7f746aBAc0797E8dBC344b638F1C4225F264")
-#let _spender_name = common.temp(x: "{{spender_name}}", def: "")
-#let _spender_is_contract = common.temp(x: "{{spender_is_contract}}", def: true)
+#let _spender_addr = common.temp(x: "{{spender_addr}}", def: "0x5838c07a50894fAA58EBfe5E5975f1FCc8792cD3")
+#let _spender_name = common.temp(x: "{{spender_name}}", def: "sbchild钱包1")
+#let _spender_is_contract = common.temp(x: "{{spender_is_contract}}", def: false)
 // ---
 
 // 授权数量为 0 表示授权被取消。

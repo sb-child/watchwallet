@@ -143,7 +143,7 @@
   } else if t == "approve-recv" and revoked {
     _t("feather.svg", t: "授权被取消")
   } else if t == "approve-recv" {
-    _t("feather.svg", t: "被授权代币")
+    _t("feather.svg", t: "收到授权")
   } else if t == "erc20-recv" {
     _t("hand-coins.svg", t: "收到代币")
   } else if t == "erc20-send" {
