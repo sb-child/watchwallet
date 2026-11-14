@@ -17,8 +17,8 @@
 #let _sender_is_contract = common.temp(x: "{{sender_is_contract}}", def: false)
 // 获得币的一方
 #let _recp_addr = common.temp(x: "{{recp_addr}}", def: "0x233b7f746aBAc0797E8dBC344b638F1C4225F264")
-#let _recp_name = common.temp(x: "{{recp_name}}", def: "")
-#let _recp_is_contract = common.temp(x: "{{recp_is_contract}}", def: false)
+#let _recp_name = common.temp(x: "{{recp_name}}", def: "223333333333333322秒")
+#let _recp_is_contract = common.temp(x: "{{recp_is_contract}}", def: true)
 // ---
 #common.title("erc20-send")
 #common.display-value(val: _transfer_value, sym: _coin_symbol, k: "dec", name: _coin_name)
@@ -35,7 +35,7 @@
     addr: _recp_addr,
     contract: _recp_is_contract,
     name: _recp_name,
-    note: "接收方(recp)",
+    note: "接收方(recipient)",
   )],
 )
 #v(-5pt)

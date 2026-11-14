@@ -23,7 +23,7 @@
 
 // 授权数量为 0 表示授权被取消。
 #common.title("approve-recv", revoked: _transfer_value == "0")
-#common.display-value(val: _transfer_value, sym: _coin_symbol, k: "", name: _coin_name)
+#common.display-value(val: _transfer_value, sym: _coin_symbol, k: "", name: _coin_name, revoked: _transfer_value == "0")
 #grid(
   gutter: 2pt,
   [#common.account(

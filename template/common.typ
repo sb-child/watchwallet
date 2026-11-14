@@ -26,7 +26,7 @@
 
 #let account_with_name(name: "", addr: "", contract: false) = {
   let im = if contract {
-    "receipt-text.svg"
+    "scroll-text-star.svg"
   } else {
     "user-round-star.svg"
   }
@@ -41,8 +41,9 @@
       [#image(im, width: 14pt)],
       [
         #align(horizon + left)[
-          #text(name, size: 10pt)
-          #v(-10pt)
+          #v(2pt)
+          #text(name, size: 9pt)
+          #v(-8pt)
           #text(addr, font: "JetBrains Mono", size: 4.6pt, weight: 800)
         ]
       ],
@@ -52,7 +53,7 @@
 
 #let account_only_addr(addr: "", contract: false) = {
   let im = if contract {
-    "receipt-text.svg"
+    "scroll-text.svg"
   } else {
     "user-round.svg"
   }
@@ -86,7 +87,7 @@
         top + right,
         dy: -4pt,
         dx: 1pt,
-        block(fill: rgb("#ffffffff"), inset: 1pt)[
+        block(fill: rgb("#ffffffe9"), inset: 1pt)[
           #text(note, weight: "bold", size: 4.8pt)
         ],
       )
@@ -175,7 +176,7 @@
   return s.replace(regex("\.0+$|(\.\d+?)0+$"), "$1")
 }
 
-#let display-value(val: 0.0, sym: "", name: "", k: "") = {
+#let display-value(val: 0.0, sym: "", name: "", k: "", revoked: false) = {
   let prefix = if k == "inc" {
     "+"
   } else if k == "dec" {
@@ -185,7 +186,11 @@
   }
   let value = if val == "inf" { "无限制" } else { float_to_str(val) }
   let value_str = prefix + value + if sym == "" { "" } else { " " + sym }
-  align(center, fit-text(value_str, max-size: 12pt))
+  if revoked {
+    align(center, strike[#fit-text(value_str, max-size: 12pt)])
+  } else {
+    align(center, fit-text(value_str, max-size: 12pt))
+  }
   if name != "" {
     v(-4pt)
     align(center, text(name, size: 6pt, weight: "bold"))

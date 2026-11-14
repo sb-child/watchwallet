@@ -28,7 +28,7 @@
     addr: _recp_addr,
     contract: _recp_is_contract,
     name: _recp_name,
-    note: "接收方(recp)",
+    note: "接收方(recipient)",
   )],
   [#common.flow-up(label: "来自")],
   [#common.account(

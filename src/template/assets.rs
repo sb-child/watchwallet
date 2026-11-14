@@ -61,6 +61,14 @@ pub(crate) const IMAGES: &[(&str, &[u8])] = &[
         "user-round.svg",
         include_bytes!("../../template/user-round.svg"),
     ),
+    (
+        "scroll-text.svg",
+        include_bytes!("../../template/scroll-text.svg"),
+    ),
+    (
+        "scroll-text-star.svg",
+        include_bytes!("../../template/scroll-text-star.svg"),
+    ),
 ];
 
 pub(crate) fn source(name: &str) -> Option<&'static str> {
